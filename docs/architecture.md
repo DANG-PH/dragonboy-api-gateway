@@ -951,39 +951,7 @@ sequenceDiagram
     GW-->>U: 200 OK
 ```
 
-## 7. Saga State Machine
-
-### 7.1. BUY_ACCOUNT Saga Phases
-
-```mermaid
-stateDiagram-v2
-    [*] --> FORWARD: Saga created
-
-    FORWARD --> FORWARD: Step success<br/>completed_steps++
-    FORWARD --> COMPENSATING: Step fail
-    FORWARD --> DONE: All steps done
-
-    COMPENSATING --> COMPENSATING: Rollback step
-    COMPENSATING --> FAILED: All rollbacks done
-
-    DONE --> [*]
-    FAILED --> [*]
-```
-
-### 7.2. Outbox Status Flow
-
-```mermaid
-stateDiagram-v2
-    [*] --> PENDING: Insert
-    PENDING --> PROCESSING: Poller picks up
-    PROCESSING --> DONE: Success
-    PROCESSING --> PENDING: Retry (retries < max)
-    PROCESSING --> FAILED: Retries exceeded
-    DONE --> [*]
-    FAILED --> [*]
-```
-
-## 8. Database Distribution
+## 7. Database Distribution
 
 ```mermaid
 graph LR
