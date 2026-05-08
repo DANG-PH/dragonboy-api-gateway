@@ -9,12 +9,14 @@ import { RolesGuard } from 'src/security/guard/role.guard';
 import { LoaiNapTien } from 'src/enums/nap.enum';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import Redis from 'ioredis';
+import { AuthService } from '../auth/auth.service';
 
 @Controller('user')
 @ApiTags('Api User') 
 export class UserController {
   constructor(
     private readonly userService: UserService,
+    private readonly authService: AuthService,
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
   ) {}
 
@@ -37,10 +39,30 @@ export class UserController {
     const cache = await this.redis.get(key);
     if (cache) return JSON.parse(cache);
 
-    const data = await this.userService.handleProfile({ id: userId });
+    // Web cần thêm username để admin có thể gửi mail cho user (Hiện tại dùng mô hình BFF)
+    // Nếu sau này traffic tăng thì đổi qua dùng event driven consistency sau
+    // const data = await this.userService.handleProfile({ id: userId });
+    const data = await this.getMergedProfile(Number(userId));
     // Chưa có invalidate on write thì 2 phút cache là sweet pot
     this.redis.set(key, JSON.stringify(data), 'EX', 120); // TTL, Fire and Forget 
     return data;
+  }
+
+  private async getMergedProfile(userId: number) {
+    // Parallel call - latency = max(user, auth) thay vì sum
+    const [userProfile, authProfile] = await Promise.all([
+      this.userService.handleProfile({ id: userId }),
+      this.authService.handleProfile({ id: userId }).catch((err) => {
+        // Fallback: Auth lỗi không làm fail toàn bộ request
+        return null;
+      }),
+    ]);
+
+    return {
+      ...userProfile,
+      username: authProfile?.username ?? null,
+      // thêm field khác từ auth nếu cần (role, ...)
+    };
   }
 
   @Put('save-game')

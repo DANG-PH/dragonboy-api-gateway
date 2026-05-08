@@ -7,6 +7,7 @@ import { UserService } from './user.service';
 import { JwtStrategy } from 'src/security/JWT/jwt.strategy';
 import { RolesGuard } from 'src/security/guard/role.guard';
 import { JwtAuthGuard } from 'src/security/JWT/jwt-auth.guard';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { JwtAuthGuard } from 'src/security/JWT/jwt-auth.guard';
         },
       },
     ]),
+    forwardRef(() => AuthModule),
     ClientsModule.register([
       {
           name: String(process.env.RABBIT_GAME_SERVICE),

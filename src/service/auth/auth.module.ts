@@ -40,7 +40,7 @@ import { WsChatModule } from '../chat/ws-chat.module';
           },
       },
     ]),
-    UserModule,
+    forwardRef(() => UserModule),
     forwardRef(() => SocialNetworkModule) ,
     forwardRef(() => WsChatModule),
   ],
