@@ -78,7 +78,20 @@ export class PlayerManagerController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({ summary: 'Lấy thông tin của 1 user bất kì dựa trên auth id của user đó (ADMIN/PLAYER MANAGER)(WEB) (CHƯA DÙNG)' })
   async profileadmin(@Param() param: UsernameRequestDto) {
-    return this.userService.handleProfile(param);
+    // BFF aggregation: merge data từ User service + Auth service
+    // Admin/PM cần username để gửi mail cho user
+    // TODO: migrate sang event-driven replication như avatar_url khi traffic tăng
+    const [userProfile, authProfile] = await Promise.all([
+      this.userService.handleProfile(param),
+      this.authService.handleProfile(param).catch((err) => {
+        return null;
+      }),
+    ]);
+
+    return {
+      ...userProfile,
+      username: authProfile?.username ?? null,
+    };
   }
 
   // @Get('balance-web') //dùng @query vì có thể thêm điều kiện sau, còn @Param thì truy vấn nhất định mới nên dùng 
