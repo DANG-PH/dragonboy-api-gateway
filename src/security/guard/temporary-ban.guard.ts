@@ -1,11 +1,13 @@
 import { Injectable, CanActivate, ExecutionContext, Inject, HttpException, HttpStatus } from '@nestjs/common';
 import { CACHE_MANAGER, Cache } from '@nestjs/cache-manager';
+import Redis from 'ioredis';
 // import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class TemporaryBanGuard implements CanActivate {
   constructor(
-    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+    // @Inject(CACHE_MANAGER) private cacheManager: Cache, // cách cũ (commit 328 đổ về)
+    @Inject('REDIS_CLIENT') private readonly redis: Redis,
     // private jwtService: JwtService,
   ) {}
 
@@ -16,7 +18,10 @@ export class TemporaryBanGuard implements CanActivate {
     const payload = req['_jwtPayload'];
     if (!payload?.userId) return true; // gộp 2 check thành 1
 
-    const ban = await this.cacheManager.get(`temporary-ban:${payload.userId}`) as {
+    const raw = await this.redis.get(`temporary-ban:${payload.userId}`)
+    if (!raw) return true;
+
+    const ban = JSON.parse(raw) as {
       admin: string;
       expireAt: string;
       why: string;

@@ -163,12 +163,9 @@ export class PlayerManagerController {
     const { userId, phut, why } = body;
     const usernameAdmin = req.user.username;
     const userIdAdmin = req.user.userId;
-    
-    if ( userId == userIdAdmin) {
-      throw new HttpException(
-        `Không thể ban chính mình`,
-        HttpStatus.BAD_REQUEST,
-      );
+
+    if (userId == userIdAdmin) {
+      throw new HttpException(`Không thể ban chính mình`, HttpStatus.BAD_REQUEST);
     }
 
     if (phut < 5 || phut > 4320) {
@@ -178,39 +175,35 @@ export class PlayerManagerController {
       );
     }
 
-    const user = await this.userService.handleProfile({id:userId});
+    const user = await this.userService.handleProfile({ id: userId });
     if (!user) {
-      throw new HttpException(
-        `User id ${userId} không tồn tại`,
-        HttpStatus.NOT_FOUND,
-      );
+      throw new HttpException(`User id ${userId} không tồn tại`, HttpStatus.NOT_FOUND);
     }
 
     const now = Date.now();
-    const timeHetHan = now + phut * 60 * 1000;
+    const banKey = `temporary-ban:${userId}`;
 
-    const banData = {
+    const banData = JSON.stringify({
       admin: usernameAdmin,
-      why: why,
+      why,
       startAt: new Date(now).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-      expireAt: new Date(timeHetHan).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-    }
+      expireAt: new Date(now + phut * 60 * 1000).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+    });
 
-    const currentBan = await this.cacheManager.get(`temporary-ban:${userId}`);
-    this.gameClient.emit('auth.revoke_all_token', { userId: userId });
-    
-    if (currentBan) {
-      await this.cacheManager.set(`temporary-ban:${userId}`, banData, phut * 60 * 1000);
-      return {
-        message: `Tài khoản có id ${userId} đang bị khóa. Đã cập nhật thành ${phut} phút.`,
-        admin: usernameAdmin,
-      };
-    }
+    const currentBan = await this.redis.get(banKey);
 
-    await this.cacheManager.set(`temporary-ban:${userId}`, banData, phut * 60 * 1000);
+    await this.redis
+      .pipeline()
+      .set(banKey, banData, 'EX', phut * 60)
+      .sadd('banned-users-index', String(userId))
+      .exec();
+
+    this.gameClient.emit('auth.revoke_all_token', { userId });
 
     return {
-      message: `Đã khóa tài khoản có id ${userId} trong ${phut} phút.`,
+      message: currentBan
+        ? `Tài khoản ${userId} đang bị khóa. Đã cập nhật thành ${phut} phút.`
+        : `Đã khóa tài khoản ${userId} trong ${phut} phút.`,
       admin: usernameAdmin,
     };
   }
@@ -221,53 +214,93 @@ export class PlayerManagerController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({ summary: 'ADMIN/PLAYER MANAGER mở khóa tài khoản nếu đang bị khóa tạm thời' })
   async unbanUser(@Param('userId') userId: number) {
-    const current = await this.cacheManager.get(`temporary-ban:${userId}`);
+    const banKey = `temporary-ban:${userId}`;
+
+    const current = await this.redis.get(banKey);
     if (!current) {
       return { message: `User id ${userId} hiện không bị khóa` };
     }
 
-    await this.cacheManager.del(`temporary-ban:${userId}`);
+    await this.redis
+      .pipeline()
+      .del(banKey)
+      .srem('banned-users-index', String(userId))
+      .exec();
+
     return { message: `Đã mở khóa tài khoản user id ${userId}` };
   }
 
+  /**
+   * Lấy danh sách tất cả user đang bị ban tạm thời.
+   *
+   * TẠI SAO DÙNG REDIS CLIENT THAY VÌ CACHE MANAGER?
+   * CacheManager chỉ hỗ trợ get/set/del đơn giản — không có pipeline,
+   * smembers, ttl, srem,... vì được thiết kế agnostic (có thể swap
+   * backend memory/Redis/Memcached), nên chỉ expose interface chung nhất.
+   * Cần Redis-specific API thì phải dùng thẳng Redis Client (ioredis).
+   *
+   * TẠI SAO DÙNG SET INDEX THAY VÌ ITERATOR (cách cũ - Commit 328 đổ về + đổi store[1] thành store[0])?
+   * Cách cũ dùng store.iterator() của Keyv để duyệt toàn bộ keyspace,
+   * tìm các key có prefix "temporary-ban:" → O(n) theo TỔNG SỐ KEY trong Redis.
+   * Tức là Redis đang chứa 1 triệu key (game state, dirty flag, session,...)
+   * thì phải duyệt hết 1 triệu key đó dù chỉ có 5 người bị ban.
+   * Ngoài ra logic còn sai: iterator() trả về key đã bị Keyv strip namespace,
+   * dẫn đến startsWith('temporary-ban:') có thể không bao giờ match
+   * → luôn trả về mảng rỗng dù có user đang bị ban.
+   *
+   * CÁCH MỚI DÙNG REDIS SET INDEX:
+   * Mỗi khi ban user → sadd 'banned-users-index' userId
+   * Mỗi khi unban   → srem 'banned-users-index' userId
+   * → smembers chỉ trả về đúng tập user đang bị ban → O(n) theo SỐ USER BỊ BAN.
+   * Cùng là O(n) nhưng n của cách mới là số user bị ban (thường rất nhỏ),
+   * còn n của cách cũ là tổng số key trong Redis (có thể rất lớn).
+   * Pipeline gom toàn bộ GET + TTL thành 1 round trip duy nhất.
+   */
   @Get('temporary-ban-all')
   @ApiBearerAuth()
   @Roles(Role.ADMIN, Role.PLAYER_MANAGER)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({ summary: 'ADMIN/PLAYER MANAGER xem danh sách user đang bị ban (tạm thời)' })
   async getAllTemporaryBannedUsers(): Promise<any> {
-    const store = this.cacheManager.stores?.[1]; // store redis
+    const userIds = await this.redis.smembers('banned-users-index');
 
-    // const store1 = this.cacheManager.stores?.[0].store; store ở RAM memory
-    // for (const key of store._lru.nodesMap.keys()) {
-    //   if (key.includes('temporary-ban:')) {
-    //     const userId = key.split('temporary-ban:')[1];
-    //     const value = store._lru.nodesMap.get(key)?.value;
-    //     bans.push({ userId, data: value });
-    //   }
-    // }
-
-    // console.log(store)
-
-    const bans: Array<{
-      userId: string,
-      data: any
-    }> = [];
-
-    if (store?.iterator) {
-      for await (const [key, value] of store.iterator(undefined)) {
-        // Lọc các key bắt đầu bằng "temporary-ban:"
-        if (key.startsWith('temporary-ban:')) {
-          const userId = key.replace('temporary-ban:', '');
-          bans.push({ userId, data: value });
-        }
-      }
+    if (!userIds.length) {
+      return { total: 0, bans: [] };
     }
 
-    return {
-      total: bans.length,
-      bans,
-    };
+    const pipeline = this.redis.pipeline();
+    for (const userId of userIds) {
+      pipeline.get(`temporary-ban:${userId}`);
+      pipeline.ttl(`temporary-ban:${userId}`);
+    }
+    const results = await pipeline.exec();
+
+    // Lazy clean up - trade off hợp lí vì cái này để admin xem thôi (k liên quan tới logic time ban của user)
+    // Có 1 vài cách như zadd rồi tính score nhưng có thể implement sau
+    const bans = [];
+    const expiredUserIds = [];
+
+    for (let i = 0; i < userIds.length; i++) {
+      const [, raw] = results[i * 2];
+      const [, ttl] = results[i * 2 + 1];
+
+      if (!raw || ttl === -2) {
+        expiredUserIds.push(userIds[i]);
+        continue;
+      }
+
+      bans.push({
+        userId: userIds[i],
+        data: JSON.parse(raw as string),
+        ttl,
+      });
+    }
+
+    if (expiredUserIds.length) {
+      await this.redis.srem('banned-users-index', ...expiredUserIds);
+    }
+
+    return { total: bans.length, bans };
   }
 
   @Cron('0 20 * * *', {
