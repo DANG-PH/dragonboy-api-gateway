@@ -92,22 +92,56 @@ graph TB
     class Auth,User,Pay,Item,Social,Admin,Detu,GameData,Queue,Devops svc
 ```
 
-## 2. Coupling Matrix
+## 2. Database Distribution
 
-| From → To | Auth | User | Pay | Item | Social | Admin | Detu | GameData | Queue | Devops | GameNest | GameGo |
-|-----------|:----:|:----:|:---:|:----:|:------:|:-----:|:----:|:--------:|:-----:|:------:|:--------:|:------:|
-| **API Gateway** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| **Auth** | - | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **User** | ❌ | - | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Pay** | ❌ | ❌ | - | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Item** | ❌ | ❌ | ❌ | - | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Social** | ✅ | ❌ | ❌ | ❌ | - | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Admin** | ✅ | ❌ | ✅ | ❌ | ❌ | - | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Detu** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | - | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **GameData** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | - | ❌ | ❌ | ❌ | ❌ |
-| **Queue** | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | - | ❌ | ❌ | ❌ |
-| **GameNest** | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | - | ❌ |
-| **GameGo** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | - |
+```mermaid
+graph LR
+    subgraph MySQL_DBs["MySQL"]
+        AuthDB[(auth_db)]
+        UserDB[(user_db)]
+        PayDB[(pay_db)]
+        ItemDB[(item_db)]
+        SocialDB[(social_db)]
+        DetuDB[(detu_db)]
+        GameDataDB[(game_data_db)]
+    end
+
+    subgraph Postgres_DBs["PostgreSQL"]
+        AdminDB[(admin_db)]
+    end
+
+    subgraph Mongo_DBs["MongoDB"]
+        LoggerDB[(logger_db)]
+    end
+
+    subgraph Redis_DBs["Redis"]
+        SessionRedis[(session)]
+        OtpRedis[(otp)]
+        CacheRedis[(cache)]
+    end
+
+    Auth[Auth] --> AuthDB
+    User[User] --> UserDB
+    Pay[Pay] --> PayDB
+    Item[Item] --> ItemDB
+    Social[Social] --> SocialDB
+    Detu[Detu] --> DetuDB
+    GameData[GameData] --> GameDataDB
+    Admin[Admin] --> AdminDB
+    AllSvcs[All Services] --> LoggerDB
+    Auth --> SessionRedis
+    Auth --> OtpRedis
+    Gateway[Gateway] --> CacheRedis
+
+    classDef mysql fill:#fde68a,stroke:#92400e,color:#1f2937
+    classDef pg fill:#bfdbfe,stroke:#1e3a8a,color:#1f2937
+    classDef mongo fill:#bbf7d0,stroke:#14532d,color:#1f2937
+    classDef redis fill:#fecaca,stroke:#991b1b,color:#1f2937
+    class AuthDB,UserDB,PayDB,ItemDB,SocialDB,DetuDB,GameDataDB mysql
+    class AdminDB pg
+    class LoggerDB mongo
+    class SessionRedis,OtpRedis,CacheRedis redis
+```
 
 ## 3. Data Flow Map (Domain View)
 
@@ -949,55 +983,4 @@ sequenceDiagram
     Auth-->>Social: batch info
     Social-->>GW: comment tree
     GW-->>U: 200 OK
-```
-
-## 7. Database Distribution
-
-```mermaid
-graph LR
-    subgraph MySQL_DBs["MySQL"]
-        AuthDB[(auth_db)]
-        UserDB[(user_db)]
-        PayDB[(pay_db)]
-        ItemDB[(item_db)]
-        SocialDB[(social_db)]
-        DetuDB[(detu_db)]
-        GameDataDB[(game_data_db)]
-    end
-
-    subgraph Postgres_DBs["PostgreSQL"]
-        AdminDB[(admin_db)]
-    end
-
-    subgraph Mongo_DBs["MongoDB"]
-        LoggerDB[(logger_db)]
-    end
-
-    subgraph Redis_DBs["Redis"]
-        SessionRedis[(session)]
-        OtpRedis[(otp)]
-        CacheRedis[(cache)]
-    end
-
-    Auth[Auth] --> AuthDB
-    User[User] --> UserDB
-    Pay[Pay] --> PayDB
-    Item[Item] --> ItemDB
-    Social[Social] --> SocialDB
-    Detu[Detu] --> DetuDB
-    GameData[GameData] --> GameDataDB
-    Admin[Admin] --> AdminDB
-    AllSvcs[All Services] --> LoggerDB
-    Auth --> SessionRedis
-    Auth --> OtpRedis
-    Gateway[Gateway] --> CacheRedis
-
-    classDef mysql fill:#fde68a,stroke:#92400e,color:#1f2937
-    classDef pg fill:#bfdbfe,stroke:#1e3a8a,color:#1f2937
-    classDef mongo fill:#bbf7d0,stroke:#14532d,color:#1f2937
-    classDef redis fill:#fecaca,stroke:#991b1b,color:#1f2937
-    class AuthDB,UserDB,PayDB,ItemDB,SocialDB,DetuDB,GameDataDB mysql
-    class AdminDB pg
-    class LoggerDB mongo
-    class SessionRedis,OtpRedis,CacheRedis redis
 ```
