@@ -321,6 +321,13 @@ export class XoaShopItemRequestDto {
   id: number;
 }
 
+export class XoaShopItemResponseDto {
+  @ApiProperty({ example: 1, description: 'Id Npc của item vừa bị xóa, cần cái này để server trigger shop reload' })
+  @Type(() => Number)
+  @IsInt()
+  id: number;
+}
+
 // ===== ITEM BASE =====
 
 export class ItemBaseDto {

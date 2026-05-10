@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Roles } from 'src/security/decorators/role.decorator';
 import { Role } from 'src/enums/role.enum';
@@ -34,11 +34,15 @@ import {
   XoaItemBaseRequestDto,
   ItemBaseDto,
 } from '../../../dto/game-data.dto';
+import { ClientProxy } from '@nestjs/microservices';
 
 @ApiTags('Api Game Data')
 @Controller('game-data')
 export class GameDataController {
-  constructor(private readonly gameDataService: GameDataService) {}
+  constructor(
+    private readonly gameDataService: GameDataService,
+    @Inject(String(process.env.RABBIT_GAME_SERVICE)) private readonly gameClient: ClientProxy,
+  ) {}
 
   // ===== MAP BASE =====
 
@@ -177,7 +181,11 @@ export class GameDataController {
   @ApiOperation({ summary: 'Thêm item vào shop NPC (ADMIN)(WEB)' })
   @ApiBody({ type: ThemShopItemRequestDto })
   async themShopItem(@Body() body: ThemShopItemRequestDto): Promise<NpcShopItemDto> {
-    return this.gameDataService.handleThemShopItem(body);
+    const result = await this.gameDataService.handleThemShopItem(body);
+    if (result != null) {
+      this.gameClient.emit('game.reload_shop', { npcId: result.npc_base_id });
+    }
+    return result;
   }
 
   @Patch('npc-shop')
@@ -187,7 +195,11 @@ export class GameDataController {
   @ApiOperation({ summary: 'Sửa item trong shop NPC (ADMIN)(WEB)' })
   @ApiBody({ type: SuaShopItemRequestDto })
   async suaShopItem(@Body() body: SuaShopItemRequestDto): Promise<NpcShopItemDto> {
-    return this.gameDataService.handleSuaShopItem(body);
+    const result = await this.gameDataService.handleSuaShopItem(body);
+    if (result != null) {
+      this.gameClient.emit('game.reload_shop', { npcId: result.npc_base_id });
+    }
+    return result;
   }
 
   @Delete('npc-shop')
@@ -197,7 +209,10 @@ export class GameDataController {
   @ApiOperation({ summary: 'Xóa item khỏi shop NPC (ADMIN)(WEB)' })
   @ApiQuery({ name: 'id', type: Number })
   async xoaShopItem(@Query() query: XoaShopItemRequestDto): Promise<void> {
-    await this.gameDataService.handleXoaShopItem(query);
+    const result = await this.gameDataService.handleXoaShopItem(query);
+    if (result != null) {
+      this.gameClient.emit('game.reload_shop', { npcId: result.npcId });
+    }
   }
 
   // ===== ITEM BASE =====

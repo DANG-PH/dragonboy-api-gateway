@@ -32,7 +32,7 @@ service GameDataService {
   rpc GetShopTheoNpc (GetShopTheoNpcRequest) returns (GetShopTheoNpcResponse);
   rpc ThemShopItem   (ThemShopItemRequest)   returns (NpcShopItem);
   rpc SuaShopItem    (SuaShopItemRequest)    returns (NpcShopItem);
-  rpc XoaShopItem    (XoaShopItemRequest)    returns (Empty);
+  rpc XoaShopItem    (XoaShopItemRequest)    returns (XoaShopItemResponse);
 }
 
 // ===== COMMON =====
@@ -170,6 +170,10 @@ message SuaShopItemRequest {
 
 message XoaShopItemRequest {
   int32 id = 1;
+}
+
+message XoaShopItemResponse {
+  int32 npcId = 1;
 }
 
 // ===== ITEM BASE =====

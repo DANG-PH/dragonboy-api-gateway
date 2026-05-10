@@ -154,6 +154,10 @@ export interface XoaShopItemRequest {
   id: number;
 }
 
+export interface XoaShopItemResponse {
+  npcId: number;
+}
+
 /** ===== ITEM BASE ===== */
 export interface ItemBase {
   id: number;
@@ -244,7 +248,7 @@ export interface GameDataServiceClient {
 
   suaShopItem(request: SuaShopItemRequest, metadata?: Metadata): Observable<NpcShopItem>;
 
-  xoaShopItem(request: XoaShopItemRequest, metadata?: Metadata): Observable<Empty>;
+  xoaShopItem(request: XoaShopItemRequest, metadata?: Metadata): Observable<XoaShopItemResponse>;
 }
 
 /** ===== SERVICE DEFINITION ===== */
@@ -298,7 +302,7 @@ export interface GameDataServiceController {
 
   suaShopItem(request: SuaShopItemRequest, metadata?: Metadata): Observable<NpcShopItem>;
 
-  xoaShopItem(request: XoaShopItemRequest, metadata?: Metadata): Observable<Empty>;
+  xoaShopItem(request: XoaShopItemRequest, metadata?: Metadata): Observable<XoaShopItemResponse>;
 }
 
 export function GameDataServiceControllerMethods() {

@@ -25,6 +25,17 @@ import { GameDataService } from './game-data.service';
         },
       },
     ]),
+    ClientsModule.register([
+      {
+          name: String(process.env.RABBIT_GAME_SERVICE),
+          transport: Transport.RMQ,
+          options: {
+          urls: [String(process.env.RABBIT_URL)],
+          queue: process.env.RABBIT_GAME_QUEUE,
+          queueOptions: { durable: true },
+          },
+      },
+    ]),
   ],
   controllers: [GameDataController],
   providers: [JwtStrategy,RolesGuard, GameDataService],

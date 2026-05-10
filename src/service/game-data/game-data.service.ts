@@ -34,6 +34,7 @@ import {
   SuaItemBaseResponse,
   XoaItemBaseRequest,
   ItemBase,
+  XoaShopItemResponse,
 
 } from 'proto/game-data.pb';
 import { grpcCall } from 'src/helpers/grpc.helper';
@@ -118,7 +119,7 @@ export class GameDataService {
     return grpcCall(GameDataService.name, this.gameDataGrpcService.suaShopItem(req));
   }
 
-  async handleXoaShopItem(req: XoaShopItemRequest): Promise<Empty> {
+  async handleXoaShopItem(req: XoaShopItemRequest): Promise<XoaShopItemResponse> {
     return grpcCall(GameDataService.name, this.gameDataGrpcService.xoaShopItem(req));
   }
 
