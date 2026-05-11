@@ -122,6 +122,12 @@ export interface NpcShopItem {
   loaiTien: string;
   tab: string;
   is_active: boolean;
+  /** epoch millis, null = bán ngay */
+  start_at?:
+    | number
+    | undefined;
+  /** epoch millis, null = vô thời hạn */
+  end_at?: number | undefined;
 }
 
 export interface GetShopTheoNpcRequest {
@@ -138,16 +144,20 @@ export interface ThemShopItemRequest {
   gia: number;
   loaiTien: string;
   tab: string;
-  is_active: boolean;
+  is_active?: boolean | undefined;
+  start_at?: number | undefined;
+  end_at?: number | undefined;
 }
 
 export interface SuaShopItemRequest {
   id: number;
-  item_base_id: number;
-  gia: number;
-  loaiTien: string;
-  tab: string;
-  is_active: boolean;
+  item_base_id?: number | undefined;
+  gia?: number | undefined;
+  loaiTien?: string | undefined;
+  tab?: string | undefined;
+  is_active?: boolean | undefined;
+  start_at?: number | undefined;
+  end_at?: number | undefined;
 }
 
 export interface XoaShopItemRequest {

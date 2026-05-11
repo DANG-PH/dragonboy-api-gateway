@@ -1,6 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsNumber, IsString } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { NpcSpawn } from 'proto/game-data.pb';
 
 export enum LoaiNPC {
@@ -237,10 +237,11 @@ export class ThemShopItemRequestDto {
 
   @ApiProperty({ example: 2, description: 'ID của item base' })
   @IsInt()
-  item_base_id: number;  // ← thay tenItem
+  item_base_id: number;
 
   @ApiProperty({ example: 1000 })
   @IsNumber()
+  @Min(0)
   gia: number;
 
   @ApiProperty({ example: LoaiTien.NGOC, enum: LoaiTien })
@@ -251,35 +252,82 @@ export class ThemShopItemRequestDto {
   @IsEnum(TabShop)
   tab: string;
 
-  @ApiProperty({ example: true })
+  @ApiPropertyOptional({ example: true, description: 'Mặc định true nếu không gửi' })
+  @IsOptional()
   @IsBoolean()
-  is_active: boolean;
+  is_active?: boolean;
+
+  @ApiPropertyOptional({ 
+    example: 1715000000000, 
+    description: 'Epoch millis. Không gửi = bán ngay (NULL)' 
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  start_at?: number;
+
+  @ApiPropertyOptional({ 
+    example: 1715100000000, 
+    description: 'Epoch millis. Không gửi = vô thời hạn (NULL)' 
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  end_at?: number;
 }
 
 export class SuaShopItemRequestDto {
-  @ApiProperty({ example: 1 })
+  @ApiProperty({ example: 1, description: 'ID của shop item cần sửa' })
   @IsInt()
   id: number;
 
-  @ApiProperty({ example: 2 })
+  @ApiPropertyOptional({ example: 2 })
+  @IsOptional()
   @IsInt()
-  item_base_id: number;  // ← thay tenItem
+  item_base_id?: number;
 
-  @ApiProperty({ example: 2000 })
+  @ApiPropertyOptional({ example: 2000 })
+  @IsOptional()
   @IsNumber()
-  gia: number;
+  @Min(0)
+  gia?: number;
 
-  @ApiProperty({ example: LoaiTien.VANG, enum: LoaiTien })
+  @ApiPropertyOptional({ example: LoaiTien.VANG, enum: LoaiTien })
+  @IsOptional()
   @IsEnum(LoaiTien)
-  loaiTien: string;
+  loaiTien?: string;
 
-  @ApiProperty({ example: TabShop.DAC_BIET, enum: TabShop })
+  @ApiPropertyOptional({ example: TabShop.DAC_BIET, enum: TabShop })
+  @IsOptional()
   @IsEnum(TabShop)
-  tab: string;
+  tab?: string;
 
-  @ApiProperty({ example: false })
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
   @IsBoolean()
-  is_active: boolean;
+  is_active?: boolean;
+
+  @ApiPropertyOptional({ 
+    example: 1715000000000, 
+    description: 'Epoch millis. Không gửi = không đổi field này' 
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  start_at?: number;
+
+  @ApiPropertyOptional({ 
+    example: 1715100000000, 
+    description: 'Epoch millis. Không gửi = không đổi field này' 
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  end_at?: number;
 }
 
 export class NpcShopItemDto {
@@ -293,7 +341,7 @@ export class NpcShopItemDto {
   ten_npc: string;
 
   @ApiProperty({ example: 2 })
-  item_base_id: number;  // ← thay tenItem
+  item_base_id: number;
 
   @ApiProperty({ example: 'Bông tai Porata' })
   ten_item: string;
@@ -312,6 +360,20 @@ export class NpcShopItemDto {
 
   @ApiProperty({ example: true })
   is_active: boolean;
+
+  @ApiPropertyOptional({ 
+    example: 1715000000000, 
+    nullable: true,
+    description: 'Epoch millis. null = bán ngay' 
+  })
+  start_at?: number | null;
+
+  @ApiPropertyOptional({ 
+    example: 1715100000000, 
+    nullable: true,
+    description: 'Epoch millis. null = vô thời hạn' 
+  })
+  end_at?: number | null;
 }
 
 export class XoaShopItemRequestDto {
@@ -325,7 +387,7 @@ export class XoaShopItemResponseDto {
   @ApiProperty({ example: 1, description: 'Id Npc của item vừa bị xóa, cần cái này để server trigger shop reload' })
   @Type(() => Number)
   @IsInt()
-  id: number;
+  npcId: number;
 }
 
 // ===== ITEM BASE =====

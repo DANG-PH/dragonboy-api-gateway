@@ -140,6 +140,8 @@ message NpcShopItem {
   string loaiTien     = 8;
   string tab          = 9;
   bool   is_active    = 10;
+  optional int64 start_at = 11;  // epoch millis, null = bán ngay
+  optional int64 end_at   = 12;  // epoch millis, null = vô thời hạn
 }
 
 message GetShopTheoNpcRequest {
@@ -156,16 +158,20 @@ message ThemShopItemRequest {
   int64  gia          = 3;
   string loaiTien     = 4;
   string tab          = 5;
-  bool   is_active    = 6;
+  optional bool is_active    = 6;
+  optional int64 start_at = 7;
+  optional int64 end_at   = 8;
 }
 
 message SuaShopItemRequest {
   int32  id           = 1;
-  int32  item_base_id = 2;  
-  int64  gia          = 3;
-  string loaiTien     = 4;
-  string tab          = 5;
-  bool   is_active    = 6;
+  optional int32  item_base_id = 2;
+  optional int64  gia          = 3;
+  optional string loaiTien     = 4;
+  optional string tab          = 5;
+  optional bool   is_active    = 6;
+  optional int64  start_at     = 7;
+  optional int64  end_at       = 8;
 }
 
 message XoaShopItemRequest {
