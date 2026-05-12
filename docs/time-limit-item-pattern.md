@@ -1,7 +1,7 @@
 # Tài liệu kỹ thuật: Patterns xử lý Time-limited Items trong Game
 
-> **Phiên bản:** 2.0
-> **Ngày:** 2026-05-09
+> **Phiên bản:** 3.0
+> **Ngày:** 2026-05-12
 > **Trạng thái:** Tham khảo kỹ thuật
 > **Đối tượng đọc:** Backend dev, Game architect, Tech Lead
 
@@ -10,40 +10,49 @@
 ## Mục lục
 
 1. [Tổng quan](#1-tổng-quan)
-2. [Định nghĩa 3 patterns](#2-định-nghĩa-3-patterns)
-3. [So sánh đặc tính kỹ thuật](#3-so-sánh-đặc-tính-kỹ-thuật)
-4. [Use case: Daily/Weekly Reset Shop](#4-use-case-dailyweekly-reset-shop)
-5. [Use case: Event Shop có deadline](#5-use-case-event-shop-có-deadline)
-6. [Use case: Flash Sale chính xác](#6-use-case-flash-sale-chính-xác)
-7. [Sử dụng pattern sai use case sẽ gây vấn đề gì?](#7-sử-dụng-pattern-sai-use-case-sẽ-gây-vấn-đề-gì)
-8. [Bảng quyết định nhanh](#8-bảng-quyết-định-nhanh)
-9. [Độ trễ thực tế của Pattern 1 (sửa lại cho chính xác)](#9-độ-trễ-thực-tế-của-pattern-1-sửa-lại-cho-chính-xác)
-10. [Xử lý multi-region: Timezone & Clock Skew](#10-xử-lý-multi-region-timezone--clock-skew)
-11. [Cristian's Algorithm — đồng bộ đồng hồ client với server](#11-cristians-algorithm--đồng-bộ-đồng-hồ-client-với-server)
-12. [Kiến trúc kết hợp cả 3 patterns](#12-kiến-trúc-kết-hợp-cả-3-patterns)
-13. [Tham khảo từ industry](#13-tham-khảo-từ-industry)
+2. [Định nghĩa 4 patterns](#2-định-nghĩa-4-patterns)
+3. [Cơ chế chi tiết từng pattern](#3-cơ-chế-chi-tiết-từng-pattern)
+   - 3.1 Pattern 1 — Lazy Filter (standalone)
+   - 3.2 Pattern 2 — Scheduled Cron (standalone)
+   - 3.3 Pattern 3 — Delayed Job (standalone)
+   - 3.4 Pattern 4 — Polling Cron (Anti-pattern: hiểu để tránh)
+   - 3.5 Hybrid Pattern 1+3
+4. [So sánh đặc tính kỹ thuật — tất cả 4 variants](#4-so-sánh-đặc-tính-kỹ-thuật--tất-cả-4-variants)
+5. [Use case: Daily/Weekly Reset Shop → Pattern 2](#5-use-case-dailyweekly-reset-shop--pattern-2)
+6. [Use case: Event Shop có deadline → Hybrid 1+3](#6-use-case-event-shop-có-deadline--hybrid-13)
+7. [Use case: Flash Sale chính xác → Pattern 3 standalone](#7-use-case-flash-sale-chính-xác--pattern-3-standalone)
+8. [Dùng sai pattern sẽ gây vấn đề gì?](#8-dùng-sai-pattern-sẽ-gây-vấn-đề-gì)
+9. [Bảng quyết định nhanh](#9-bảng-quyết-định-nhanh)
+10. [Độ trễ thực tế của Pattern 1 và Hybrid](#10-độ-trễ-thực-tế-của-pattern-1-và-hybrid)
+11. [Xử lý multi-region: Timezone & Clock Skew](#11-xử-lý-multi-region-timezone--clock-skew)
+12. [Cristian's Algorithm](#12-cristians-algorithm--đồng-bộ-đồng-hồ-client-với-server)
+13. [Kiến trúc kết hợp tổng thể](#13-kiến-trúc-kết-hợp-tổng-thể)
+14. [Đánh giá hiệu năng và khả năng mở rộng](#14-đánh-giá-hiệu-năng-và-khả-năng-mở-rộng)
+15. [Tham khảo từ industry](#15-tham-khảo-từ-industry)
 
 ---
 
 ## 1. Tổng quan
 
-Trong game live-service, hầu như mọi hệ thống shop/event đều có yếu tố thời gian. Có **3 patterns kỹ thuật** thường được dùng để xử lý time-limited items:
+Trong game live-service, hầu như mọi hệ thống shop/event đều có yếu tố thời gian. Tài liệu này phân tích **4 variants kỹ thuật** để xử lý time-limited items:
 
-- **Pattern 1 — Lazy Filter (filter `start_at`/`end_at` khi fetch/render)**
-- **Pattern 2 — Scheduled Cron (reset đồng loạt theo lịch cố định)**
-- **Pattern 3 — Delayed Job (job per-item kích hoạt đúng giây)**
+| Variant | Tên | Dùng cho |
+|---|---|---|
+| **Pattern 1** | Lazy Filter (standalone) | Event shop, không cần notify real-time |
+| **Pattern 2** | Scheduled Cron | Daily/Weekly reset đồng bộ |
+| **Pattern 3** | Delayed Job (standalone) | Flash sale precise, ít item |
+| **Pattern 4** | Polling Cron | ❌ Anti-pattern — hiểu để tránh |
+| **Hybrid 1+3** | Lazy Filter + Delayed Job notify | Event shop cần notify + UX tốt hơn |
 
-**Sự thật quan trọng:** không có pattern nào "thống trị". Game prod lớn (Genshin, WoW, Lost Ark, FFXIV, MLBB) đều dùng **kết hợp cả 3**, mỗi pattern cho 1 use case khác nhau. Việc chọn sai pattern cho use case sẽ dẫn đến vấn đề kỹ thuật và UX nghiêm trọng.
-
-Tài liệu này phân tích **vì sao mỗi use case bắt buộc phải dùng pattern tương ứng**, và **dùng sai sẽ gặp vấn đề gì**, kèm theo cách xử lý multi-region (server châu Á, user toàn cầu).
+**Nguyên tắc chọn:** không có pattern nào "thống trị". Game prod lớn (Genshin, WoW, Lost Ark, FFXIV, MLBB) đều dùng **kết hợp**, mỗi pattern cho 1 use case riêng. Chọn sai dẫn đến vấn đề kỹ thuật và UX nghiêm trọng.
 
 ---
 
-## 2. Định nghĩa 3 patterns
+## 2. Định nghĩa 4 patterns
 
-### Pattern 1 — Lazy Filter
+### Pattern 1 — Lazy Filter (standalone)
 
-**Cơ chế:** Item có 2 field `start_at` và `end_at` (lưu UTC). Mỗi lần render UI, filter theo `now`:
+**Cơ chế:** Item có 2 field `start_at` và `end_at` (lưu UTC). Mỗi lần render UI, filter theo `now`. **Không có job nào chạy** khi item bắt đầu hoặc kết thúc.
 
 ```typescript
 const now = Date.now();  // hoặc serverNow nếu có clock sync
@@ -54,120 +63,862 @@ return allItems.filter(item =>
 );
 ```
 
-**Đặc điểm quan trọng:**
-- Mỗi item có **lifecycle độc lập**.
-- **Không cần background job** xử lý expiration.
-- **Không cần WS event "trigger hết hạn"** — item tự "biến mất" qua filter khi `now > end_at`.
-- Server validate `now < end_at` lúc transaction (anti-cheat).
-- WS event `RELOAD_SHOP` chỉ cần khi admin **sửa data**, không phải khi item hết hạn tự nhiên.
+**Đặc điểm:**
+- Mỗi item có **lifecycle độc lập** được định nghĩa bởi 2 field.
+- **Không có background job** xử lý expiration hay activation.
+- **Không có WS event** khi item tự xuất hiện/biến mất theo thời gian.
+- Client tự phát hiện trạng thái item mỗi lần render.
+- WS event `RELOAD_SHOP` chỉ cần khi admin **sửa data** thủ công.
+
+---
 
 ### Pattern 2 — Scheduled Cron
 
-**Cơ chế:** Cron job chạy đúng giờ cố định (vd: 4h sáng UTC+7) reset stock/items đồng loạt:
+**Cơ chế:** Cron job chạy đúng giờ cố định reset stock/items đồng loạt. Không liên quan đến `start_at`/`end_at` per-item.
 
 ```typescript
 @Cron('0 4 * * *', { timeZone: 'Asia/Bangkok' })
 async dailyShopReset() {
-    await db.shopItem.updateMany({ stock: 'reset_to_default' });
+    await db.shopItem.resetDailyStock();
+    await db.playerPurchase.resetDailyLimit();
+    await rollDailyShopRotation();
     await redis.flushPrefix('shop:');
     wsServer.broadcast({ action: 'DAILY_RESET' });
 }
 ```
 
 **Đặc điểm:**
-- **Đồng bộ tuyệt đối** giữa các player tại 1 thời điểm cố định.
-- Reset **counter** (purchase limit, stock) — không chỉ là time filter.
+- **Đồng bộ tuyệt đối** tại 1 thời điểm cố định.
+- Reset **counter** (purchase limit, stock) — không chỉ filter thời gian.
 - Cần WS broadcast để client update ngay.
 
-### Pattern 3 — Delayed Job
+---
 
-**Cơ chế:** Khi tạo item có `end_at`, schedule background job (BullMQ/Sidekiq/Quartz) chạy đúng `end_at`:
+### Pattern 3 — Delayed Job (standalone)
+
+**Cơ chế:** Không dùng `start_at`/`end_at` như field filter. Thay vào đó, scheduled jobs **thực sự thay đổi trạng thái DB** khi item bắt đầu hoặc kết thúc: thêm item vào shop khi đến `start_at`, xóa/deactivate item khi đến `end_at`.
 
 ```typescript
-async function createFlashSaleItem(item) {
-    const result = await db.shopItem.create(item);
-    const delayMs = item.end_at.getTime() - Date.now();
-    await flashSaleQueue.add(
-        'expire-item',
-        { itemId: result.id },
-        { delay: delayMs, jobId: `expire-${result.id}` }
+async function scheduleEventItem(item: EventItem) {
+    await db.shopItem.create({ ...item, is_active: false });
+
+    // Job 1: Kích hoạt item đúng start_at
+    const startDelay = item.start_at.getTime() - Date.now();
+    await eventQueue.add(
+        'activate-item',
+        { itemId: item.id },
+        { delay: startDelay, jobId: `activate-${item.id}` }
     );
-    return result;
+
+    // Job 2: Vô hiệu hóa item đúng end_at
+    const endDelay = item.end_at.getTime() - Date.now();
+    await eventQueue.add(
+        'deactivate-item',
+        { itemId: item.id },
+        { delay: endDelay, jobId: `deactivate-${item.id}` }
+    );
 }
 
-flashSaleQueue.process('expire-item', async (job) => {
+// Worker: kích hoạt item
+eventQueue.process('activate-item', async (job) => {
+    await db.shopItem.update({ id: job.data.itemId, is_active: true });
+    wsServer.broadcast({ action: 'RELOAD_SHOP', itemId: job.data.itemId });
+});
+
+// Worker: vô hiệu hóa item
+eventQueue.process('deactivate-item', async (job) => {
     await db.shopItem.update({ id: job.data.itemId, is_active: false });
-    wsServer.broadcast({ action: 'FLASH_SALE_END', itemId: job.data.itemId });
+    wsServer.broadcast({ action: 'RELOAD_SHOP', itemId: job.data.itemId });
 });
 ```
 
 **Đặc điểm:**
-- Chính xác đến **giây/millisecond**.
-- Có thể trigger logic phức tạp khi item bắt đầu/kết thúc (broadcast, init counter, log, refund).
-- Cần infrastructure queue.
+- **Không có field `start_at`/`end_at` như filter** — trạng thái item (`is_active`) thực sự thay đổi theo thời gian.
+- Mỗi item cần **2 job** trong queue (1 activate, 1 deactivate).
+- WS broadcast đúng thời điểm → client reload shop ngay.
+- Nếu admin sửa `end_at`: phải cancel job cũ, tạo job mới.
+- Tốn infra: N items × 2 = 2N jobs.
 
 ---
 
-## 3. So sánh đặc tính kỹ thuật
+### Hybrid Pattern 1+3 — Lazy Filter + Delayed Notify
 
-| Tiêu chí | Pattern 1 (Lazy) | Pattern 2 (Cron) | Pattern 3 (Delayed Job) |
+**Cơ chế:** Kết hợp tốt nhất của cả hai:
+- **Giữ `start_at`/`end_at` như Pattern 1**: item luôn tồn tại trong DB với lifecycle được định nghĩa bởi 2 field. Filter logic hoạt động mọi lúc.
+- **Thêm BullMQ jobs như Pattern 3**: khi tạo item, schedule job tại đúng `start_at` và `end_at` để **push WS notify** cho client reload shop — không phải để thay đổi DB state.
+
+```typescript
+async function createTimedShopItem(item: TimedShopItem) {
+    // Lưu item với start_at/end_at như Pattern 1
+    const saved = await db.shopItem.create({
+        ...item,
+        is_active: true,  // luôn active, filter logic xử lý thời gian
+        start_at: item.start_at,
+        end_at: item.end_at
+    });
+
+    const now = Date.now();
+
+    // Schedule notify khi item BẮT ĐẦU xuất hiện
+    if (item.start_at && item.start_at.getTime() > now) {
+        // start_at trong tương lai → schedule job
+        const startDelay = item.start_at.getTime() - now;
+        await shopNotifyQueue.add(
+            'notify-item-available',
+            { itemId: saved.id, npcId: item.npc_id },
+            { delay: startDelay, jobId: `notify-start-${saved.id}` }
+        );
+    } else {
+        // start_at <= now → item đã sẵn sàng, push reload ngay
+        wsServer.broadcast({
+            action: 'RELOAD_SHOP',
+            npcId: item.npc_id,
+            reason: 'item_available'
+        });
+    }
+
+    // Schedule notify khi item HẾT HẠN
+    if (item.end_at) {
+        const endDelay = item.end_at.getTime() - now;
+        await shopNotifyQueue.add(
+            'notify-item-expired',
+            { itemId: saved.id, npcId: item.npc_id },
+            { delay: endDelay, jobId: `notify-end-${saved.id}` }
+        );
+    }
+
+    return saved;
+}
+
+// Worker: notify item available
+shopNotifyQueue.process('notify-item-available', async (job) => {
+    // Không cần thay đổi DB — item đã có start_at và filter tự xử lý
+    wsServer.broadcast({
+        action: 'RELOAD_SHOP',
+        npcId: job.data.npcId,
+        reason: 'item_available'
+    });
+    // Tùy chọn: push notification
+    pushNotificationToActivePlayers({
+        npcId: job.data.npcId,
+        title: 'New item available in shop!',
+    });
+});
+
+// Worker: notify item expired
+shopNotifyQueue.process('notify-item-expired', async (job) => {
+    // Không cần thay đổi DB — filter tự ẩn item khi end_at > now
+    wsServer.broadcast({
+        action: 'RELOAD_SHOP',
+        npcId: job.data.npcId,
+        reason: 'item_expired'
+    });
+});
+```
+
+**Client xử lý:**
+```java
+// Nhận WS event RELOAD_SHOP → fetch lại từ server
+wsClient.on("RELOAD_SHOP", event -> {
+    if (event.npcId == currentOpenNpcId) {
+        shopViewModel.refreshItems(event.npcId);
+        // Với reason = 'item_expired': có thể show toast "Một số item đã hết hạn"
+        // Với reason = 'item_available': có thể show toast "Item mới đã xuất hiện!"
+    }
+});
+```
+
+**Đặc điểm:**
+- **DB state không thay đổi** khi item bắt đầu/kết thúc — chỉ notify client reload.
+- **Filter logic (`start_at`/`end_at`) làm nguồn sự thật** — không thể desync.
+- **BullMQ jobs chỉ gửi WS event** — không cần cancel/recreate khi admin sửa `end_at`.
+- Khi admin sửa `end_at`: chỉ cần `UPDATE` DB + cancel job cũ + tạo job mới cho notify.
+- UX tốt hơn Pattern 1 standalone: client không cần poll, nhận event đúng lúc.
+
+---
+
+## 3. Cơ chế chi tiết từng pattern
+
+### 3.1. Pattern 1 Standalone — Ưu điểm, nhược điểm, và khi nào đủ tốt
+
+**Luồng hoàn chỉnh khi item hết hạn:**
+
+```
+12:00:00 — item.end_at
+          ├── DB: item vẫn tồn tại với is_active=true, end_at=12:00:00
+          ├── Redis cache: item vẫn nằm trong cache
+          └── Client: KHÔNG nhận được event nào
+
+12:00:01 — Player A mở dialog shop
+          ├── Client filter: now=12:00:01 > end_at=12:00:00 → ẩn item
+          └── Player A không thấy item (đúng)
+
+12:00:01 — Player B đang mở dialog shop (không đóng lại)
+          ├── UI re-render tick: now=12:00:01 > end_at=12:00:00 → item biến mất
+          └── Nếu có countdown timer → countdown về 0 → UI tự ẩn
+
+12:00:01 — Player C đang xem item với giỏ hàng đã chứa item này
+          ├── Click "Confirm" → server validate: now > end_at → reject
+          └── Client nhận error "Item đã hết hạn" → clear cart
+```
+
+**Ưu điểm Pattern 1 standalone:**
+- Zero infra overhead — không cần queue, worker, job scheduling.
+- Admin sửa `end_at` chỉ cần `UPDATE` 1 row — không có side effect nào.
+- Scale tốt: 10,000 event banner cùng lúc → vẫn chỉ là filter SQL.
+- Không có race condition, không có job failure.
+
+**Nhược điểm Pattern 1 standalone:**
+- Client không được notify khi item xuất hiện/biến mất.
+- Player phải tự đóng/mở dialog để thấy item mới, hoặc client phải poll định kỳ.
+- Với item `start_at` trong tương lai: player đang mở shop sẽ không thấy item mới cho đến khi họ refresh.
+- UX kém hơn Hybrid khi có nhiều event chạy song song.
+
+**Khi nào Pattern 1 standalone đủ tốt:**
+- Event dài (7+ ngày): player không quan tâm lệch 1-2 phút.
+- Team nhỏ, MVP, chưa có WS infrastructure.
+- Item không có countdown UI — chỉ hiển thị ngày kết thúc tĩnh.
+- Client đã có cơ chế poll định kỳ (vd: refresh shop mỗi 5 phút).
+
+---
+
+### 3.2. Pattern 2 Standalone — Cách hoạt động đầy đủ và trade-off
+
+**Khác biệt cốt lõi với Pattern 1 và 3:** Pattern 2 không xử lý lifecycle của từng item riêng lẻ. Thay vào đó, một cron job chạy tại **thời điểm cố định định kỳ** và thực hiện reset đồng loạt toàn bộ hệ thống shop.
+
+**Cơ chế hoạt động:**
+
+Không có field `start_at`/`end_at` per-item. Thay vào đó, logic "hôm nay shop có gì" được tính toán **tại thời điểm cron chạy**, hoặc được định nghĩa trước bởi rotation table/config.
+
+```
+Mỗi ngày 4h sáng UTC+7:
+  ├── Reset stock counter: current_stock = default_stock (cho tất cả item)
+  ├── Reset purchase limit: daily_bought = 0 (cho tất cả player)
+  ├── Roll rotation: chọn ngẫu nhiên N item từ pool để bày bán hôm nay
+  ├── Invalidate Redis cache
+  └── WS broadcast DAILY_RESET → tất cả client refresh
+```
+
+**Schema điển hình cho daily shop:**
+
+```sql
+-- Pool tất cả item có thể xuất hiện trong shop
+CREATE TABLE shop_item_pool (
+    id INT PRIMARY KEY,
+    name VARCHAR(255),
+    price BIGINT,
+    default_stock INT,
+    rarity VARCHAR(20)  -- common/rare/epic — ảnh hưởng tỉ lệ rotation
+);
+
+-- Rotation hôm nay (được cron tính lại mỗi ngày)
+CREATE TABLE daily_shop_rotation (
+    id INT PRIMARY KEY,
+    item_id INT REFERENCES shop_item_pool(id),
+    rotation_date DATE NOT NULL,
+    current_stock INT NOT NULL,
+    INDEX (rotation_date)
+);
+
+-- Purchase limit per player per day
+CREATE TABLE player_daily_purchase (
+    player_id VARCHAR(36),
+    item_id INT,
+    date DATE,
+    bought_count INT DEFAULT 0,
+    PRIMARY KEY (player_id, item_id, date)
+);
+```
+
+**Cron implementation đầy đủ:**
+
+```typescript
+@Cron('0 21 * * *', { timeZone: 'UTC' })  // 21:00 UTC = 04:00 UTC+7
+async dailyShopReset() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const log = createResetLog('daily_shop', today);
+
+    try {
+        // Bước 1: Roll rotation mới cho hôm nay
+        const newRotation = await rollDailyRotation(today);
+
+        // Bước 2: Xóa rotation cũ (giữ lại N ngày để analytics)
+        await db.dailyShopRotation.deleteOlderThan(subDays(today, 30));
+
+        // Bước 3: Insert rotation mới
+        await db.dailyShopRotation.insertMany(newRotation);
+
+        // Bước 4: Reset purchase limit hôm qua (không xóa để giữ history)
+        // Thực tế: chỉ cần query theo date, không cần reset
+
+        // Bước 5: Invalidate cache
+        await redis.del('shop:daily:rotation');
+        await redis.del('shop:daily:stock:*');
+
+        // Bước 6: Broadcast cho tất cả player
+        wsServer.broadcast({
+            action: 'DAILY_RESET',
+            timestamp: Date.now(),
+            type: 'shop',
+            next_reset_at: getNextResetTimestamp()  // client hiển thị countdown đến reset tiếp theo
+        });
+
+        log.write('Daily reset completed', { itemCount: newRotation.length });
+    } catch (err) {
+        log.error('Daily reset failed', err);
+        // Alert ops nhưng KHÔNG throw — cron phải tiếp tục chạy ngày mai
+        await alertOps('Daily shop reset failed', err);
+    }
+}
+
+// Idempotent: gọi lại nhiều lần trong cùng ngày vẫn ra kết quả đúng
+async function rollDailyRotation(date: Date) {
+    // Kiểm tra đã roll chưa (tránh double-roll khi retry)
+    const existing = await db.dailyShopRotation.findByDate(date);
+    if (existing.length > 0) return existing;
+
+    // Seed ngẫu nhiên theo date → cùng ngày luôn ra cùng rotation (reproducible)
+    const seed = dateToDeterministicSeed(date);
+    const pool = await db.shopItemPool.findAll();
+    return selectRotationFromPool(pool, seed, DAILY_ITEM_COUNT);
+}
+```
+
+**Server query daily shop:**
+
+```typescript
+async function getDailyShopItems() {
+    const cached = await redis.get('shop:daily:rotation');
+    if (cached) return JSON.parse(cached);
+
+    const today = getCurrentServerDate();  // theo timezone server
+    const items = await db.dailyShopRotation.findByDate(today);
+
+    await redis.setex('shop:daily:rotation', 3600, JSON.stringify(items));
+    return items;
+}
+
+// Kiểm tra purchase limit khi mua
+async function checkPurchaseLimit(playerId: string, itemId: number, today: Date) {
+    const record = await db.playerDailyPurchase.findOne({ playerId, itemId, date: today });
+    const item = await db.shopItemPool.findById(itemId);
+
+    if (record && record.bought_count >= item.daily_limit) {
+        throw new Error(`Đã mua đủ số lượng hôm nay (tối đa ${item.daily_limit})`);
+    }
+}
+```
+
+**Luồng đầy đủ khi cron chạy:**
+
+```
+03:59:59 UTC+7 — Trước reset
+  Player A đang mở daily shop → thấy rotation hôm qua
+  Player B offline
+
+04:00:00 UTC+7 — Cron chạy
+  ├── rollDailyRotation(today) → tính rotation mới
+  ├── INSERT daily_shop_rotation (hôm nay)
+  ├── redis.del('shop:daily:*')
+  └── WS broadcast DAILY_RESET
+
+04:00:00 — Player A nhận DAILY_RESET
+  └── client refresh dialog → thấy rotation mới ngay
+
+04:05:00 — Player B vào game
+  └── fetch daily shop → query by today's date → thấy rotation mới (đúng)
+
+04:00:00 — Player C đang click "Mua" ngay lúc cron chạy
+  ├── Server validate: purchase_date = hôm qua → OK (vẫn trong ngày cũ)
+  └── Nếu cron đã chạy xong: purchase_date = hôm nay → daily limit reset
+  (race condition nhỏ, acceptable trong ~1s window)
+```
+
+**Multi-server (distributed lock):**
+
+```typescript
+@Cron('0 21 * * *', { timeZone: 'UTC' })
+async dailyShopReset() {
+    // Chỉ 1 instance trong cluster được chạy
+    const lock = await redlock.acquire(['lock:daily_shop_reset'], 60_000);
+
+    try {
+        await this.performReset();
+    } finally {
+        await lock.release();
+    }
+}
+```
+
+**Ưu điểm Pattern 2 standalone:**
+- **Đồng bộ tuyệt đối**: tất cả player nhận rotation mới cùng lúc.
+- **Reset counter atomic**: stock, purchase limit, rotation — tất cả trong 1 transaction.
+- **Predictable load**: biết trước khi nào heavy operation → có thể chuẩn bị.
+- **Player expectation**: "daily reset" là term chuẩn 20+ năm, player hiểu và mong đợi.
+- **Idempotent dễ**: chạy lại cùng ngày → kết quả như nhau.
+
+**Nhược điểm Pattern 2 standalone:**
+- **Không xử lý được lifecycle độc lập**: không thể dùng cho 30 event banner chạy song song với deadline khác nhau.
+- **Giờ reset cố định**: không thể tạo "reset lúc 14:37" dễ dàng — crontab chỉ hỗ trợ đến phút.
+- **DB spike tại giờ reset**: tất cả write xảy ra cùng lúc → cần chuẩn bị infra.
+- **Dynamic schedule khó**: admin muốn thêm "reset vào thứ 6 tuần này" → phải sửa code.
+
+**Khi nào Pattern 2 standalone phù hợp:**
+- Daily shop, weekly shop với giờ reset cố định.
+- Daily quest reset, daily login reward reset.
+- Weekly raid lockout, weekly PvP season reset.
+- Bất kỳ content nào cần **đồng bộ toàn server tại 1 thời điểm cố định**.
+
+---
+
+### 3.3. Pattern 3 Standalone — Cách hoạt động đầy đủ và trade-off
+
+**Khác biệt cốt lõi với Pattern 1:** Pattern 3 không dùng `start_at`/`end_at` như filter condition. Thay vào đó, **DB state thực sự thay đổi** tại đúng thời điểm.
+
+**Schema Pattern 3 standalone:**
+```sql
+CREATE TABLE shop_item (
+    id INT PRIMARY KEY,
+    name VARCHAR(255),
+    price BIGINT,
+    is_active BOOLEAN DEFAULT FALSE,  -- Bắt đầu là FALSE, job sẽ set TRUE
+    -- KHÔNG có start_at, end_at như filter field
+    -- Có thể lưu target_start/target_end để reference, nhưng không dùng để filter
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+**Luồng đầy đủ khi tạo event item:**
+```
+Admin tạo item "Skin Limited" start=14:00, end=18:00
+  ↓
+DB: INSERT shop_item (is_active=FALSE)
+  ↓
+BullMQ: add job 'activate-item' delay=2h (đến 14:00)
+BullMQ: add job 'deactivate-item' delay=6h (đến 18:00)
+```
+
+```
+14:00:00 — job 'activate-item' chạy
+  ↓
+DB: UPDATE shop_item SET is_active=TRUE WHERE id=123
+Redis: invalidate cache 'shop:npc:5'
+WS: broadcast RELOAD_SHOP → tất cả client đang mở shop của NPC 5 fetch lại
+Push notify: "Skin Limited đã có mặt!"
+```
+
+```
+18:00:00 — job 'deactivate-item' chạy
+  ↓
+DB: UPDATE shop_item SET is_active=FALSE WHERE id=123
+Redis: invalidate cache 'shop:npc:5'
+WS: broadcast RELOAD_SHOP → client refresh
+```
+
+**Vấn đề khi admin sửa end_at:**
+```typescript
+async function updateItemEndAt(itemId: number, newEndAt: Date) {
+    // Bước 1: Cập nhật DB
+    await db.shopItem.update({ id: itemId, target_end: newEndAt });
+
+    // Bước 2: Cancel job cũ (phải có jobId để tìm)
+    await eventQueue.removeJob(`deactivate-${itemId}`);
+
+    // Bước 3: Tạo job mới với thời điểm mới
+    const newDelay = newEndAt.getTime() - Date.now();
+    await eventQueue.add(
+        'deactivate-item',
+        { itemId },
+        { delay: newDelay, jobId: `deactivate-${itemId}` }
+    );
+}
+```
+
+**Vấn đề khi server crash:**
+- BullMQ persist jobs vào Redis → jobs survive restart.
+- Nhưng nếu job đã đến hạn trong khi server down → job chạy ngay sau restart (có thể trễ vài giây-phút).
+- `is_active` vẫn đúng sau khi job chạy bù → không mất data.
+
+**Ưu điểm Pattern 3 standalone:**
+- DB state luôn reflect trạng thái thực tế — query `WHERE is_active=TRUE` là đủ, không cần filter thời gian.
+- WS event đúng giây → UX tốt nhất cho user đang mở shop.
+- Có thể trigger logic phức tạp (notification, analytics, init counter) tại đúng thời điểm.
+
+**Nhược điểm Pattern 3 standalone:**
+- 2 jobs/item → N items = 2N jobs trong queue.
+- Admin sửa `end_at` → phải cancel + recreate job → code phức tạp hơn.
+- Mất 2 field `start_at`/`end_at` như nguồn sự thật trực quan.
+- Nếu job fail → item không deactivate → player thấy item quá hạn (cần retry logic + dead letter queue).
+- Over-engineering cho event dài ngày.
+
+**Khi nào Pattern 3 standalone phù hợp:**
+- Flash sale precise (< 1 giờ), số lượng hạn chế.
+- Item cần trigger logic phức tạp tại start/end (init counter, push notification rộng).
+- Hệ thống đã có queue infrastructure sẵn.
+
+---
+
+### 3.4. Pattern 4 — Polling Cron (Anti-pattern: hiểu để tránh)
+
+#### Ý tưởng và cách một số team tiếp cận
+
+Thay vì dùng BullMQ delayed job (phức tạp về infra) hoặc `start_at`/`end_at` filter (cần clock sync), một số team nghĩ đến cách đơn giản hơn: **dùng cron chạy liên tục mỗi vài giây** để scan DB/Redis, phát hiện item nào vừa đến `target_start` hoặc `target_end` rồi thay đổi state và broadcast WS.
+
+```
+Mỗi 10 giây:
+  ├── Query: SELECT * FROM shop_item WHERE target_start <= now AND is_active = FALSE
+  ├── → UPDATE is_active = TRUE cho những item đó
+  ├── Query: SELECT * FROM shop_item WHERE target_end <= now AND is_active = TRUE
+  ├── → UPDATE is_active = FALSE cho những item đó
+  └── Nếu có thay đổi → WS broadcast RELOAD_SHOP
+```
+
+#### Vì sao pattern này xuất hiện
+
+- Team không muốn setup BullMQ/Redis queue (infra phức tạp).
+- Nghĩ rằng "cron đơn giản hơn delayed job".
+- Không muốn dùng `start_at`/`end_at` filter vì lo ngại clock skew client.
+- Ý tưởng nghe có vẻ hợp lý: "cứ mỗi 10s kiểm tra một lần là đủ".
+
+#### Cần lưu gì và cơ chế hoạt động
+
+Không có `start_at`/`end_at` như filter field của Pattern 1. Thay vào đó có 2 cách lưu:
+
+**Cách A — Lưu target time trong DB:**
+```sql
+CREATE TABLE shop_item (
+    id INT PRIMARY KEY,
+    name VARCHAR(255),
+    is_active BOOLEAN DEFAULT FALSE,
+    target_start TIMESTAMP NULL,  -- mục tiêu kích hoạt
+    target_end   TIMESTAMP NULL,  -- mục tiêu hủy
+    -- target_start/end KHÔNG dùng để filter như P1 — chỉ để cron đọc
+);
+```
+
+**Cách B — Lưu danh sách pending activation trong Redis:**
+```typescript
+// Khi tạo item:
+await redis.zadd('shop:pending_start', item.start_at.getTime(), item.id);
+await redis.zadd('shop:pending_end',   item.end_at.getTime(),   item.id);
+
+// Cron mỗi 10s:
+const now = Date.now();
+const toActivate   = await redis.zrangebyscore('shop:pending_start', 0, now);
+const toDeactivate = await redis.zrangebyscore('shop:pending_end',   0, now);
+```
+
+**Cron implementation:**
+```typescript
+// Chạy mỗi 10 giây
+@Interval(10_000)
+async pollShopStateChanges() {
+    const now = Date.now();
+
+    // Kích hoạt item đến giờ
+    const toActivate = await db.shopItem.findWhere({
+        is_active: false,
+        target_start: { lte: now }
+    });
+    if (toActivate.length > 0) {
+        await db.shopItem.updateMany(
+            { id: { in: toActivate.map(i => i.id) } },
+            { is_active: true }
+        );
+        const npcIds = [...new Set(toActivate.map(i => i.npc_id))];
+        npcIds.forEach(npcId =>
+            wsServer.broadcast({ action: 'RELOAD_SHOP', npcId })
+        );
+    }
+
+    // Deactivate item hết hạn
+    const toDeactivate = await db.shopItem.findWhere({
+        is_active: true,
+        target_end: { lte: now }
+    });
+    if (toDeactivate.length > 0) {
+        await db.shopItem.updateMany(
+            { id: { in: toDeactivate.map(i => i.id) } },
+            { is_active: false }
+        );
+        const npcIds = [...new Set(toDeactivate.map(i => i.npc_id))];
+        npcIds.forEach(npcId =>
+            wsServer.broadcast({ action: 'RELOAD_SHOP', npcId })
+        );
+    }
+}
+```
+
+#### Tại sao đây là anti-pattern — phân tích từng điểm yếu
+
+**Điểm yếu 1: Precision tệ hơn Pattern 3, không tốt hơn Pattern 1**
+
+```
+Item end_at = 14:00:00
+
+Pattern 3 (Delayed Job):  item expire đúng 14:00:00 ± vài ms
+Pattern 1 (Lazy Filter):  item ẩn tại frame render đầu tiên sau 14:00:00 ± vài ms
+Pattern 4 (Polling 10s):  item expire tại lần poll tiếp theo sau 14:00 → trễ 0 đến 10s
+
+→ Pattern 4 KÉMHƠN cả Pattern 1 về precision, trong khi tốn nhiều tài nguyên hơn
+```
+
+Với interval 10s, trung bình mỗi item trễ **5 giây**. Người chơi A thấy item biến mất lúc 14:00:02, người chơi B thấy lúc 14:00:09 — không đồng nhất giữa các player vì phụ thuộc vào khi nào server poll.
+
+**Điểm yếu 2: DB load liên tục không cần thiết**
+
+```
+Interval 10s → 6 lần/phút → 360 lần/giờ → 8,640 lần/ngày
+
+Mỗi lần: 2 query scan toàn bộ shop_item (WHERE is_active=FALSE AND target_start <= now)
+
+Với 10,000 item → 8,640 × 2 full scan = 172,800 query/ngày chỉ để "không có gì thay đổi"
+(99% các lần poll là no-op)
+
+Pattern 3: 0 query/ngày ngoài lúc item thực sự start/end
+Pattern 1: 0 query background — chỉ query khi player mở shop
+```
+
+**Điểm yếu 3: Vẫn tốn infra nhưng phức tạp hơn Pattern 1, không bằng Pattern 3**
+
+```
+Pattern 1: Không cần infra gì thêm
+Pattern 3: Cần BullMQ + Redis queue (nhưng đổi lại precision tuyệt đối)
+Pattern 4: Cần cron scheduler + DB polling (tốn tài nguyên, precision tệ)
+
+→ Pattern 4 tệ nhất ở cả 2 mặt: tốn tài nguyên VÀ precision kém
+```
+
+**Điểm yếu 4: Race condition và thundering herd tự tạo ra**
+
+```
+Cron chạy trên multi-server cluster:
+  Server A poll lúc T=0s → phát hiện item X cần activate → UPDATE is_active=TRUE
+  Server B poll lúc T=2s → cũng phát hiện item X (nếu chưa có lock) → UPDATE lại
+  → Double broadcast WS RELOAD_SHOP → client reload 2 lần không cần thiết
+
+Fix: cần distributed lock → lại phải dùng Redis → tốn thêm infra
+Với BullMQ (Pattern 3): queue đảm bảo mỗi job chạy đúng 1 lần, không cần lock thêm
+```
+
+**Điểm yếu 5: Không có `start_at`/`end_at` như nguồn sự thật**
+
+Giống Pattern 3 standalone, nếu chỉ dùng `target_start`/`target_end` để cron đọc mà không dùng làm filter:
+```
+- Admin query "item này còn hạn đến khi nào?" → phải đọc target_end
+- Nhưng is_active=TRUE/FALSE mới là state thực → 2 nguồn sự thật tiềm ẩn conflict
+- Nếu cron fail trong 1 giờ → is_active không được update → data sai cho đến khi cron chạy lại
+- Debug: "tại sao item này vẫn active?" → phải trace cron log xem poll nào bị skip
+```
+
+**Điểm yếu 6: Không thể trigger logic phức tạp tại đúng thời điểm**
+
+```
+Pattern 3: job chạy đúng 14:00:00 → init Redis counter, push notification, log analytics
+Pattern 4: poll chạy lúc 14:00:07 → trigger muộn 7s → notification "Flash sale bắt đầu!" đến tay user lúc 14:00:08
+           Đối với flash sale 10 phút → 7s trễ = 1.2% thời gian sale đã qua khi user nhận notify
+```
+
+#### So sánh trực tiếp Pattern 4 vs các pattern khác
+
+| Tiêu chí | P1 Lazy | P3 Delayed Job | P4 Polling Cron |
 |---|---|---|---|
-| **Độ chính xác hết hạn** | ~1 frame UI render (~16-1000ms) | Tuyệt đối tại giờ cron | Đến giây/millisecond |
-| **Đồng bộ giữa player** | Phụ thuộc đồng hồ từng client | Tất cả player reset cùng lúc | Server push event đồng thời |
-| **Background job** | Không cần | Cần cron (1 job/ngày) | Cần queue (N job/N item) |
-| **WS event khi hết hạn** | Không cần (client tự filter) | Có (DAILY_RESET) | Có (FLASH_SALE_END) |
-| **Trigger logic phức tạp khi hết hạn** | Khó | Có thể (tại lúc cron chạy) | Dễ (tại đúng `end_at`) |
-| **Scale với số lượng item** | Tốt (chỉ filter) | Tốt (1 cron cho tất cả) | Kém (1 job/item) |
-| **Phụ thuộc đồng hồ client** | Có (cần Cristian sync) | Không | Không |
-| **Phù hợp với "reset đồng bộ"** | Không | Có | Không |
-| **Phù hợp với "lifecycle độc lập"** | Có | Không | Có |
+| **Precision** | ~100ms (với clock sync) | ~ms | Trung bình 5s (interval/2) |
+| **DB query background** | 0 | 0 | 8,640+/ngày (no-op hầu hết) |
+| **Infra cần thêm** | Không | BullMQ + Redis queue | Cron scheduler + lock |
+| **Multi-server safe** | ✅ (stateless filter) | ✅ (queue đảm bảo) | ❌ (cần distributed lock thêm) |
+| **Job/query fail impact** | N/A | High (item stuck) → retry | High (item stuck đến poll tiếp) |
+| **Admin sửa end_at** | UPDATE 1 row | Cancel + recreate job | UPDATE target_end (đơn giản) |
+| **Nguồn sự thật rõ ràng** | ✅ start_at/end_at | ❌ is_active | ❌ is_active (target chỉ là ref) |
+| **Scale với N items** | O(1) | O(2N) jobs | O(N) mỗi 10s scan |
+| **Complexity** | Thấp | Trung bình | Trung bình (nhưng kết quả tệ hơn) |
+
+#### Kết luận: Khi nào Pattern 4 có thể chấp nhận được?
+
+Pattern 4 **không bao giờ là lựa chọn tốt** so với các pattern khác, nhưng có thể chấp nhận trong điều kiện rất hạn chế:
+
+- **Precision không quan trọng** (item dài ngày, trễ 5-10s hoàn toàn không ai quan tâm).
+- **Không có BullMQ/queue infra** và không muốn setup.
+- **Số lượng item rất nhỏ** (< 20 item) → scan cost negligible.
+- **Interval đủ thưa** (5 phút thay vì 10s) → chấp nhận trễ tối đa 5 phút.
+
+Trong thực tế, nếu đã đáp ứng các điều kiện trên thì **Pattern 1 standalone còn đơn giản hơn và không tốn tài nguyên background** — Pattern 4 không có lý do tồn tại so với P1.
+
+> **Tóm gọn:** Pattern 4 (Polling Cron) là Pattern 3 nhưng kém hơn ở mọi mặt quan trọng — precision tệ hơn, tốn tài nguyên hơn, không an toàn hơn trên multi-server, không có nguồn sự thật rõ ràng hơn. Đây là anti-pattern điển hình xuất hiện khi team muốn tránh BullMQ nhưng vẫn muốn "server tự động thay đổi state" — giải pháp đúng cho nhu cầu đó vẫn là Pattern 3 hoặc Hybrid 1+3.
 
 ---
 
-## 4. Use case: Daily/Weekly Reset Shop
+### 3.5. Hybrid Pattern 1+3 — Sự kết hợp thông minh
 
-### 4.1. Đặc điểm use case
+**Câu hỏi cốt lõi:** Hybrid 1+3 giải quyết được vấn đề gì mà riêng lẻ không làm được?
+
+#### Vấn đề Pattern 1 standalone không giải quyết được:
+
+**Vấn đề 1: Client không biết khi nào item mới xuất hiện**
+
+```
+Scenario: Event shop có item mới bắt đầu bán lúc 15:00.
+Player đang mở dialog shop lúc 14:55.
+
+Pattern 1 standalone:
+  - 15:00 → item filter tự "bật lên" trong logic
+  - Nhưng dialog ĐANG MỞ → không re-fetch → player không thấy item mới
+  - Player phải đóng/mở lại dialog để thấy
+
+Hybrid 1+3:
+  - 15:00 → BullMQ job chạy → WS broadcast RELOAD_SHOP
+  - Client nhận event → fetch lại → item mới xuất hiện ngay trong dialog đang mở
+  - Toast: "Item mới vừa xuất hiện trong shop!"
+```
+
+**Vấn đề 2: Không có push notification khi item sắp hết hạn**
+
+```
+Pattern 1 standalone:
+  - Không có hook nào để trigger "còn 1 giờ là hết hạn"
+  - Chỉ client tự đếm countdown, không thể push notification server-side
+
+Hybrid 1+3:
+  - Có thể schedule thêm job "notify-expiring-soon" 1 giờ trước end_at
+  - Push notification: "Item X còn 1 giờ nữa là hết! Mua ngay!"
+```
+
+**Vấn đề 3: Player offline không biết shop đã thay đổi**
+
+```
+Pattern 1 standalone:
+  - Player offline → vào game → fetch shop → filter tự xử lý đúng
+  - OK về data, nhưng không có gì "thông báo" shop đã thay đổi
+
+Hybrid 1+3:
+  - Có thể log WS events để khi player login → server check "có reload event nào lúc offline không?"
+  - Hiện badge "Shop đã có item mới" khi player vào game
+```
+
+#### Vấn đề Pattern 3 standalone không giải quyết được:
+
+**Vấn đề 1: Admin sửa end_at quá phức tạp**
+
+```
+Pattern 3 standalone:
+  - Admin sửa end_at qua panel
+  - Backend phải: UPDATE db + removeJob(old) + addJob(new)
+  - Nếu bất kỳ bước nào fail → data inconsistent
+  - Cần transaction + rollback logic phức tạp
+
+Hybrid 1+3:
+  - Admin sửa end_at qua panel
+  - Backend: UPDATE db (end_at field) + removeJob(notify-end-X) + addJob(notify-end-X, newDelay)
+  - Job fail → chỉ mất WS notify, không ảnh hưởng data
+  - Filter vẫn đúng vì dựa trên end_at trong DB
+  - Không cần rollback: DB update và job là 2 concerns độc lập
+```
+
+**Vấn đề 2: Job failure = item stuck**
+
+```
+Pattern 3 standalone:
+  - Job 'deactivate-item' fail → retry fail → dead letter
+  - is_active vẫn TRUE → player thấy item đã hết hạn
+  - Cần monitor + alert + manual fix
+
+Hybrid 1+3:
+  - Job 'notify-item-expired' fail → chỉ là WS notify không được gửi
+  - Client không reload shop real-time, nhưng filter vẫn đúng
+  - Player refresh/re-open dialog → thấy item đã biến mất (filter xử lý)
+  - Degraded gracefully, không cần manual fix
+```
+
+**Vấn đề 3: DB state không phản ánh "thực tế đang diễn ra"**
+
+```
+Pattern 3 standalone:
+  - Giữa T=start_at và lúc job chạy (có thể trễ vài ms): is_active=FALSE
+  - Nếu query trực tiếp DB (bypass filter): thấy item inactive mặc dù đang trong thời gian active
+  - Debug khó hơn
+
+Hybrid 1+3:
+  - DB luôn có start_at, end_at rõ ràng
+  - Bất kỳ ai query DB cũng biết item đang trong thời gian nào
+  - Debug dễ hơn nhiều
+```
+
+#### Tóm tắt: Hybrid giải quyết gì mà riêng lẻ không làm được
+
+| Vấn đề | P1 alone | P3 alone | Hybrid 1+3 |
+|---|---|---|---|
+| Client tự phát hiện item active | ✅ | ✅ (qua is_active) | ✅ |
+| Push WS notify đúng lúc item available | ❌ | ✅ | ✅ |
+| Push WS notify đúng lúc item expired | ❌ | ✅ | ✅ |
+| Admin sửa end_at đơn giản | ✅ | ❌ (cancel+recreate job) | ✅ (update + đổi notify job) |
+| Job failure → graceful degrade | N/A | ❌ item stuck | ✅ chỉ mất notify |
+| DB state là nguồn sự thật rõ ràng | ✅ | ❌ (phụ thuộc job) | ✅ |
+| Scale với nhiều event | ✅ | ❌ (2N jobs) | ✅ (2N jobs nhẹ hơn P3) |
+| Trigger push notification | ❌ | ✅ | ✅ |
+| Real-time UX khi dialog đang mở | ❌ | ✅ | ✅ |
+
+**Kết luận:** Hybrid 1+3 là sự kết hợp thông minh vì:
+1. **Nguồn sự thật là DB** (`start_at`/`end_at`) — không bao giờ sai.
+2. **Jobs chỉ làm nhiệm vụ notify** — không thay đổi state → job fail không phá data.
+3. **UX real-time** nhờ WS event đúng thời điểm.
+4. **Admin workflow đơn giản** — sửa DB là đủ, notify job chỉ là side effect.
+
+---
+
+## 4. So sánh đặc tính kỹ thuật — tất cả 4 variants
+
+| Tiêu chí | P1 Lazy Standalone | P2 Cron | P3 Delayed Standalone | Hybrid 1+3 |
+|---|---|---|---|---|
+| **Nguồn sự thật** | `start_at`/`end_at` trong DB | Cron schedule | `is_active` trong DB | `start_at`/`end_at` trong DB |
+| **DB thay đổi khi item expire** | Không | Có (reset counter) | Có (is_active=FALSE) | Không |
+| **WS event khi item expire** | Không | Có (DAILY_RESET) | Có (RELOAD_SHOP) | Có (RELOAD_SHOP) |
+| **WS event khi item start** | Không | Không (chỉ reset) | Có (RELOAD_SHOP) | Có (RELOAD_SHOP) |
+| **Background job** | Không | 1 cron/schedule | 2 job/item | 2 job/item (nhẹ hơn) |
+| **Job failure impact** | N/A | High (reset không chạy) | High (item stuck) | Low (chỉ mất notify) |
+| **Admin sửa end_at** | UPDATE 1 row | N/A | UPDATE + cancel + recreate job | UPDATE + swap notify job |
+| **Độ chính xác notify** | N/A | Đến giờ | Đến giây/ms | Đến giây/ms |
+| **Scale với N items** | O(1) | O(1) | O(2N) jobs | O(2N) jobs (nhẹ) |
+| **Phụ thuộc đồng hồ client** | Có (cần Cristian) | Không | Không | Không (server push) |
+| **Reset counter đồng bộ** | Không | Có | Không | Không |
+| **Debug độ phức tạp** | Thấp | Trung bình | Cao | Trung bình |
+| **Phù hợp event dài (7+ ngày)** | ✅ | ❌ | ❌ (over-engineered) | ✅ |
+| **Phù hợp flash sale (< 1h)** | ❌ | ❌ | ✅ | Overkill |
+| **Phù hợp daily reset** | ❌ | ✅ | ❌ | ❌ |
+| **Phù hợp event shop có UX tốt** | ❌ | ❌ | Có thể | ✅ |
+
+---
+
+## 5. Use case: Daily/Weekly Reset Shop → Pattern 2
+
+### 5.1. Đặc điểm use case
 
 - Shop reset stock/items **đồng loạt** cho tất cả player tại cùng 1 thời điểm.
 - Player kỳ vọng "mỗi sáng mở game thấy shop mới".
 - Reset là **đồng bộ toàn server**, không tính từ thời điểm player vào game.
 
-### 4.2. Ví dụ thực tế từ game prod
+### 5.2. Ví dụ thực tế
 
-**World of Warcraft:** Daily reset 8h sáng PST/CET, weekly reset thứ 3 (US) hoặc thứ 4 (EU). Reset áp dụng cho daily quests, dungeon lockouts, world bosses, raid lockouts.
+**World of Warcraft:** Daily reset 8h sáng PST/CET, weekly reset thứ 3 (US). Reset áp dụng cho daily quests, dungeon lockouts, world bosses.
 
-**Genshin Impact:** Daily reset 4h sáng theo timezone server. Weekly reset thứ 2 lúc 4h sáng. Hầu hết shop refresh stock theo daily/weekly reset.
+**Genshin Impact:** Daily reset 4h sáng theo timezone server. Hầu hết shop refresh stock theo daily/weekly reset.
 
-**Final Fantasy XIV:** Có 2 daily resets khác nhau cho các nội dung khác nhau (Duty/Beast Tribe vs Grand Company), mỗi cái có giờ riêng cố định.
+**Mobile Legends Bang Bang (MLBB):** Daily reset 16:00 PHT (UTC+8) — daily tasks, login rewards, shop refresh.
 
-**Mobile Legends Bang Bang (MLBB):** Daily reset 16:00 PHT (UTC+8) — daily tasks, login rewards, shop refresh, free chest limits.
+**Neverness to Everness (NTE):** Daily reset 5:00 AM server time. "Server time always takes priority over your local timezone."
 
-**Neverness to Everness (NTE):** Daily reset 5:00 AM server time. "Server time always takes priority over your local timezone, so players in different parts of the world on the same server all reset at the same real-world moment."
+### 5.3. Vì sao bắt buộc dùng Pattern 2?
 
-### 4.3. Vì sao bắt buộc dùng Pattern 2 (Cron)?
+**Lý do 1: Đồng bộ tuyệt đối giữa player.** Player A và B phải thấy shop reset cùng lúc.
 
-**Lý do 1: Đồng bộ tuyệt đối giữa player**
+**Lý do 2: Reset là hành động atomic.** Reset không chỉ filter time mà còn reset counter (purchase limit, stock), rotation ngẫu nhiên — tất cả phải xảy ra cùng lúc.
 
-Player A và B phải thấy shop reset cùng lúc. Nếu một player thấy shop mới mà người khác chưa thấy → "không công bằng", "server lỗi".
+**Lý do 3: Player expectation hình thành 20+ năm.** "Daily reset", "weekly reset" là term chuẩn ngành từ WoW (2004).
 
-**Lý do 2: Reset là 1 hành động atomic, không chỉ là filter time**
+**Lý do 4: Server load dễ kiểm soát.** Cron chạy 1 lần/ngày, biết trước.
 
-Reset không chỉ là "thay đổi list items" mà còn:
-- Reset stock counter (player đã mua hôm qua → giờ mua lại được).
-- Reset purchase limit (mua tối đa 5 cái/ngày → reset về 0).
-- Reset rotation (item ngẫu nhiên hôm nay khác hôm qua).
-
-Tất cả phải xảy ra **cùng lúc**. Pattern 1 không làm được vì mỗi item có lifecycle độc lập.
-
-**Lý do 3: Player expectation đã hình thành 20+ năm**
-
-Cụm "daily reset", "weekly reset" là term chuẩn ngành từ thời WoW (2004).
-
-**Lý do 4: Server load dễ kiểm soát**
-
-Cron chạy 1 lần/ngày, biết trước → có thể chuẩn bị infrastructure.
-
-### 4.4. Implementation chuẩn
+### 5.4. Implementation chuẩn
 
 ```typescript
 @Cron('0 4 * * *', { timeZone: 'Asia/Bangkok' })
@@ -192,7 +943,7 @@ async dailyShopReset() {
 }
 ```
 
-### 4.5. Edge cases
+### 5.5. Edge cases
 
 | Edge case | Xử lý |
 |---|---|
@@ -203,19 +954,19 @@ async dailyShopReset() {
 
 ---
 
-## 5. Use case: Event Shop có deadline
+## 6. Use case: Event Shop có deadline → Hybrid 1+3
 
-### 5.1. Đặc điểm use case
+### 6.1. Đặc điểm use case
 
 - Event shop xuất hiện trong khoảng thời gian xác định (vd: 1/6 - 7/6).
-- **Mỗi event có deadline riêng**, không đồng bộ.
+- Mỗi event có deadline riêng, không đồng bộ.
 - Có thể có nhiều event chạy song song với deadline khác nhau.
 - Player kỳ vọng "thấy countdown timer" trên item.
+- **UX tốt:** khi item mới xuất hiện hoặc biến mất, client được notify real-time mà không cần poll.
 
-### 5.2. Ví dụ thực tế
+### 6.2. Ví dụ thực tế
 
 **Genshin Impact (event banner):**
-
 ```json
 {
   "id": 301,
@@ -225,22 +976,17 @@ async dailyShopReset() {
 }
 ```
 
-**Project SEKAI (event banner):**
-
+**Project SEKAI:**
 ```typescript
 interface GachaInfo {
     id: number;
     gachaType: string;
-    name: string;
     startAt: string;  // milliseconds timestamp
     endAt: string;
 }
 ```
 
-Logic: "The system identifies active banners by comparing current time against banner start/end timestamps."
-
 **WoW MaNGOS emulator — game_event table:**
-
 ```sql
 CREATE TABLE game_event (
     entry MEDIUMINT,
@@ -251,33 +997,16 @@ CREATE TABLE game_event (
 );
 ```
 
-Schema chuẩn cho event: "Absolute start date of the event. The event will start occurring only if the local time at the server is after the one set here."
+### 6.3. Vì sao Hybrid 1+3 là lựa chọn tốt nhất?
 
-### 5.3. Vì sao bắt buộc dùng Pattern 1 (Lazy)?
+**So với Pattern 1 standalone:** Hybrid thêm WS notify, client không cần poll, UX tốt hơn khi dialog đang mở.
 
-**Lý do 1: Mỗi event có lifecycle độc lập**
+**So với Pattern 3 standalone:** Hybrid dễ maintain hơn (admin sửa end_at chỉ cần UPDATE DB), job failure không gây data inconsistency, scale tốt hơn khi N items lớn.
 
-Game có thể có 20-30 event chạy song song với deadline khác nhau. Cron không phù hợp vì không có "1 thời điểm reset chung".
+**So với Pattern 2:** Hybrid xử lý được nhiều event độc lập, không cần cron per-event.
 
-**Lý do 2: Số lượng event scale tùy ý**
+### 6.4. Schema
 
-Pattern 3 (Delayed Job) tạo N job cho N event → tốn infra. Pattern 1 chỉ cần 1 query `WHERE end_at > NOW()` → scale O(1).
-
-**Lý do 3: Không cần chính xác đến giây**
-
-Event 7 ngày, deadline lệch vài giây không ảnh hưởng. Pattern 1 đủ.
-
-**Lý do 4: Countdown UI là native**
-
-Client biết `end_at` → tự render countdown. Không cần WS event.
-
-**Lý do 5: Đơn giản nhất, dễ debug**
-
-Chỉ thêm 2 field, filter mỗi lần fetch. Không cron, không queue, không job nào fail được.
-
-### 5.4. Implementation chuẩn
-
-**Schema:**
 ```sql
 CREATE TABLE shop_item (
     id INT PRIMARY KEY,
@@ -287,37 +1016,99 @@ CREATE TABLE shop_item (
     start_at TIMESTAMP NULL,  -- Lưu UTC
     end_at TIMESTAMP NULL     -- Lưu UTC
 );
+
 CREATE INDEX idx_shop_active_time ON shop_item(is_active, end_at);
+CREATE INDEX idx_shop_start ON shop_item(start_at) WHERE start_at IS NOT NULL;
 ```
 
-**Server query (cache lưu raw data):**
+### 6.5. Implementation đầy đủ — Hybrid 1+3
+
+**Tạo item:**
+```typescript
+async function createTimedShopItem(item: TimedShopItem) {
+    const saved = await db.shopItem.create({
+        ...item,
+        is_active: true,
+        start_at: item.start_at,
+        end_at: item.end_at
+    });
+
+    const now = Date.now();
+
+    // Notify khi item bắt đầu
+    if (item.start_at && item.start_at.getTime() > now) {
+        const startDelay = item.start_at.getTime() - now;
+        await shopNotifyQueue.add(
+            'notify-item-available',
+            { itemId: saved.id, npcId: item.npc_id },
+            { delay: startDelay, jobId: `notify-start-${saved.id}` }
+        );
+    } else {
+        // Item đã sẵn sàng ngay
+        wsServer.broadcast({ action: 'RELOAD_SHOP', npcId: item.npc_id, reason: 'item_available' });
+    }
+
+    // Notify khi item hết hạn
+    if (item.end_at) {
+        const endDelay = item.end_at.getTime() - now;
+        await shopNotifyQueue.add(
+            'notify-item-expired',
+            { itemId: saved.id, npcId: item.npc_id },
+            { delay: endDelay, jobId: `notify-end-${saved.id}` }
+        );
+    }
+
+    return saved;
+}
+```
+
+**Workers:**
+```typescript
+// Worker: notify available
+shopNotifyQueue.process('notify-item-available', async (job) => {
+    wsServer.broadcast({
+        action: 'RELOAD_SHOP',
+        npcId: job.data.npcId,
+        reason: 'item_available',
+        server_now: Date.now()
+    });
+});
+
+// Worker: notify expired
+shopNotifyQueue.process('notify-item-expired', async (job) => {
+    wsServer.broadcast({
+        action: 'RELOAD_SHOP',
+        npcId: job.data.npcId,
+        reason: 'item_expired',
+        server_now: Date.now()
+    });
+});
+```
+
+**Server query (vẫn giữ filter logic của Pattern 1):**
 ```typescript
 async function getShopItems(npcId: number) {
     const cached = await redis.get(`shop:npc:${npcId}`);
-    let allItems = cached
-        ? JSON.parse(cached)
-        : await db.shopItem.findByNpcId(npcId);
+    let allItems = cached ? JSON.parse(cached) : await db.shopItem.findByNpcId(npcId);
 
     if (!cached) {
         await redis.setex(`shop:npc:${npcId}`, 300, JSON.stringify(allItems));
     }
 
-    // Filter theo time TẠI request
-    const now = Date.now();  // server clock
-    const items = allItems.filter(item =>
-        item.is_active &&
-        (!item.start_at || new Date(item.start_at).getTime() <= now) &&
-        (!item.end_at || new Date(item.end_at).getTime() > now)
-    );
-
+    // Filter theo time — nguồn sự thật
+    const now = Date.now();
     return {
-        items,
-        server_now: now  // gửi kèm để client sync clock
+        items: allItems.filter(item =>
+            item.is_active &&
+            (!item.start_at || new Date(item.start_at).getTime() <= now) &&
+            (!item.end_at || new Date(item.end_at).getTime() > now)
+        ),
+        server_now: now
     };
 }
 ```
 
-**Validate khi mua (anti-cheat — quan trọng nhất):**
+**Validate khi mua (anti-cheat):**
 ```typescript
 async function purchaseItem(playerId: string, itemId: number) {
     const item = await db.shopItem.findById(itemId);
@@ -335,94 +1126,99 @@ async function purchaseItem(playerId: string, itemId: number) {
 }
 ```
 
-**Client filter + countdown UI:**
-```java
-public List<ShopItemServerData> getDisplayItems(int npcId) {
-    List<ShopItemServerData> allItems = shopCache.get(npcId);
+**Admin sửa end_at — đơn giản hơn Pattern 3:**
+```typescript
+async function updateItemEndAt(itemId: number, newEndAt: Date) {
+    // Bước 1: Update DB (nguồn sự thật)
+    await db.shopItem.update({ id: itemId, end_at: newEndAt });
 
-    // Dùng serverNow đã sync, không phải System.currentTimeMillis() trực tiếp
-    long now = clockSync.getServerNow();
+    // Bước 2: Swap notify job (chỉ là notify, không phải state)
+    try {
+        await shopNotifyQueue.removeJob(`notify-end-${itemId}`);
+        const newDelay = newEndAt.getTime() - Date.now();
+        if (newDelay > 0) {
+            await shopNotifyQueue.add(
+                'notify-item-expired',
+                { itemId, npcId: item.npc_id },
+                { delay: newDelay, jobId: `notify-end-${itemId}` }
+            );
+        }
+    } catch (err) {
+        // Job swap fail → log nhưng KHÔNG rollback DB
+        // Filter vẫn đúng, chỉ mất WS notify
+        log.warn('Notify job swap failed, data is still correct', err);
+    }
 
-    return allItems.stream()
-        .filter(item -> item.is_active)
-        .filter(item -> item.start_at == null || item.start_at <= now)
-        .filter(item -> item.end_at == null || item.end_at > now)
-        .collect(Collectors.toList());
+    // Broadcast ngay để client biết end_at đã thay đổi
+    wsServer.broadcast({ action: 'RELOAD_SHOP', npcId: item.npc_id, reason: 'item_updated' });
 }
 ```
 
-### 5.5. Edge cases
+**Client Java:**
+```java
+public class ShopController {
+    private final ClockSync clockSync;
 
-| Edge case | Xử lý |
-|---|---|
-| Đồng hồ client lệch | Dùng Cristian's algorithm (xem Section 11) |
-| Player đang xem item lúc nó hết hạn | Countdown về 0 → tự ẩn item |
-| Player đã add item vào cart, sắp confirm | Server validate lại lúc confirm |
-| Cache chưa expire nhưng item đã hết hạn | Filter logic xử lý → item không xuất hiện |
+    // Nhận WS event → reload
+    @WsListener("RELOAD_SHOP")
+    public void onReloadShop(ReloadShopEvent event) {
+        if (event.npcId == currentOpenNpcId) {
+            shopViewModel.refreshItems(event.npcId);
+            if ("item_available".equals(event.reason)) {
+                showToast("Item mới vừa xuất hiện!");
+            } else if ("item_expired".equals(event.reason)) {
+                showToast("Một số item đã hết hạn.");
+            }
+        }
+    }
+
+    // Filter vẫn chạy mỗi render — double protection
+    public List<ShopItem> getDisplayItems(int npcId) {
+        long now = clockSync.getServerNow();
+        return shopCache.get(npcId).stream()
+            .filter(item -> item.is_active)
+            .filter(item -> item.start_at == null || item.start_at <= now)
+            .filter(item -> item.end_at == null || item.end_at > now)
+            .collect(Collectors.toList());
+    }
+}
+```
+
+### 6.6. Edge cases
+
+| Edge case | Pattern 1 | Hybrid 1+3 |
+|---|---|---|
+| Player offline lúc item xuất hiện | Thấy item khi mở shop tiếp theo | Thấy item khi mở shop tiếp theo (filter đúng) + badge "có item mới" |
+| Dialog đang mở lúc item hết hạn | Countdown về 0 → ẩn tại tick tiếp theo | WS event → reload ngay |
+| Dialog đang mở lúc item start | Không thấy cho đến khi refresh | WS event → reload + toast |
+| Admin sửa end_at | UPDATE 1 row | UPDATE + swap notify job |
+| Notify job fail | N/A | Chỉ mất UX notify, data vẫn đúng |
+| Player đã add vào cart, item hết hạn | Server reject khi confirm | WS event → client clear cart + notify |
 
 ---
 
-## 6. Use case: Flash Sale chính xác
+## 7. Use case: Flash Sale chính xác → Pattern 3 Standalone
 
-### 6.1. Đặc điểm use case
+### 7.1. Đặc điểm use case
 
-- Sale bắt đầu/kết thúc tại thời điểm **chính xác đến giây**.
-- Có **thundering herd**: hàng nghìn user click "Mua" cùng 1 giây khi sale bắt đầu.
-- Cần trigger logic phức tạp tại đúng thời điểm (notification, init counter, log).
+- Sale bắt đầu/kết thúc **chính xác đến giây**.
+- Có **thundering herd**: hàng nghìn user click "Mua" cùng 1 giây.
+- Cần trigger logic phức tạp (notification toàn server, init counter, log analytics).
 - Số lượng item bán có giới hạn, chống oversell.
 
-### 6.2. Ví dụ thực tế
+### 7.2. Vì sao Pattern 3 standalone (không phải Hybrid)?
 
-**Amazon Lightning Deals, Flipkart Big Billion Days, Alibaba Singles' Day:**
+Với flash sale:
+- Precision đến giây là bắt buộc.
+- `is_active` phải thực sự `FALSE` trước khi sale bắt đầu — không thể để client filter tự xử lý vì thundering herd cần gate rõ ràng.
+- Cần init Redis counter atomic tại đúng thời điểm start — không chỉ là notify.
+- Hybrid sẽ không đủ vì vẫn cần thay đổi state (init stock counter, set is_active) tại đúng giây.
 
-Theo bài system design về Flash Sale: "Flash sales create a thundering herd problem where traffic can spike 100x or more within seconds of the sale starting."
-
-**Architecture flash sale:** "Inventory overselling. 50,000 users click 'Buy Now' on the same 500-unit item within 200 milliseconds of T-0. A naive SELECT quantity ... UPDATE quantity = quantity - 1 will oversell."
-
-**Trong game:** Hiếm. Hầu hết MMO không có flash sale precise. Đây là pattern e-commerce hơn là game.
-
-### 6.3. Vì sao bắt buộc dùng Pattern 3 (Delayed Job)?
-
-**Lý do 1: Cần precision đến giây**
-
-Pattern 1 phụ thuộc client tự fetch và đồng hồ máy → không đảm bảo công bằng giữa các user.
-
-Pattern 2 (cron) chỉ chạy được tại các thời điểm cố định trên crontab.
-
-**Lý do 2: Cần trigger logic phức tạp tại đúng thời điểm**
-
-Khi flash sale bắt đầu/kết thúc, cần:
-- Push notification toàn server.
-- Mở/đóng UI flash sale ở client.
-- Reset inventory counter atomic.
-- Log analytics start/end.
-
-Pattern 1 không có "thời điểm trigger". Pattern 3 chạy job đúng giây → trigger được.
-
-**Lý do 3: Fairness giữa user toàn cầu**
-
-Pattern 1: User A đồng hồ chính xác mua được, User B đồng hồ lệch +5s không thấy sale tới 5 giây sau → không công bằng.
-
-Pattern 3: Server push event đồng thời, mọi user nhận trong vòng vài trăm ms → công bằng.
-
-**Lý do 4: Số lượng flash sale ít**
-
-Một game thường chỉ có 1-3 flash sale active cùng lúc → tạo 1-3 delayed job không tốn infra.
-
-**Lý do 5: Combine với queue cho thundering herd**
-
-Flash sale thường kết hợp với:
-- Virtual queue (xếp hàng).
-- Token bucket rate limit.
-- Atomic inventory decrement (Redis INCR/DECR).
-
-Pattern 3 (queue-based) tự nhiên integrate.
-
-### 6.4. Implementation chuẩn
+### 7.3. Implementation
 
 ```typescript
 async function scheduleFlashSale(sale: FlashSale) {
-    await db.flashSale.create(sale);
+    await db.flashSale.create({ ...sale, is_active: false });
 
     const startDelay = sale.start_at.getTime() - Date.now();
     await flashSaleQueue.add(
@@ -443,356 +1239,263 @@ flashSaleQueue.process('start-sale', async (job) => {
     const sale = await db.flashSale.findById(job.data.saleId);
 
     await db.flashSale.update({ id: sale.id, is_active: true });
+    // Init stock counter atomic — PHẢI làm tại đây
     await redis.set(`flash_sale:${sale.id}:stock`, sale.total_stock);
 
     wsServer.broadcast({
         action: 'FLASH_SALE_START',
         saleId: sale.id,
         endAt: sale.end_at,
-        server_now: Date.now()  // để client sync
+        server_now: Date.now()
     });
 
     pushNotificationToAllPlayers({
         title: 'Flash Sale!',
-        body: `${sale.name} đang diễn ra! Còn ${sale.duration} phút.`
+        body: `${sale.name} đang diễn ra!`
     });
 
     analytics.track('flash_sale_started', { saleId: sale.id });
 });
 
 async function purchaseFlashSaleItem(playerId: string, saleId: number) {
+    // Atomic decrement — chống oversell
     const remaining = await redis.decr(`flash_sale:${saleId}:stock`);
-
     if (remaining < 0) {
         await redis.incr(`flash_sale:${saleId}:stock`);
         throw new Error('Hết hàng!');
     }
-
     await orderQueue.add('process-order', { playerId, saleId });
 }
 ```
 
-### 6.5. Edge cases
+### 7.4. Edge cases
 
 | Edge case | Xử lý |
 |---|---|
 | Server crash trước khi job chạy | BullMQ persist → retry sau restart |
 | Job chạy trễ vài ms | Acceptable nếu < 1s |
-| Hủy flash sale trước thời điểm | Remove job qua jobId |
-| Multi-server | BullMQ shared queue, worker pool tự balance |
-| Thundering herd lúc bắt đầu | Virtual queue + rate limit + atomic Redis |
+| Hủy flash sale | Remove job qua jobId |
+| Thundering herd | Virtual queue + rate limit + atomic Redis DECR |
 
 ---
 
-## 7. Sử dụng pattern sai use case sẽ gây vấn đề gì?
+## 8. Dùng sai pattern sẽ gây vấn đề gì?
 
-### 7.1. Dùng Pattern 1 (Lazy) cho Daily Reset
+### 8.1. Dùng P1 standalone cho Event Shop (khi UX cần notify)
 
-**Vấn đề 1: Không reset đồng bộ giữa player**
+Không phải lỗi kỹ thuật, nhưng UX kém:
+- Player đang mở dialog shop không thấy item mới xuất hiện.
+- Phải poll định kỳ → tăng load server không cần thiết.
+- Không thể push notification "item sắp hết hạn".
 
-```
-Player A: login 3h59 → cache shop → admin update lúc 4h cron → A vẫn thấy data cũ.
-Player B: login 4h05 → fetch fresh → thấy data mới.
-→ Khiếu nại "tại sao bạn tôi có item này mà tôi không có".
-```
+→ **Dùng Hybrid 1+3 thay thế.**
 
-**Vấn đề 2: Không reset purchase limit / stock counter**
+### 8.2. Dùng P1 standalone cho Daily Reset
 
-Pattern 1 chỉ filter `start_at`/`end_at`. Daily reset cần reset:
-- `daily_purchase_count` per-player về 0.
-- `current_stock` về `default_stock`.
-- Random rotation.
+- Không reset đồng bộ giữa player.
+- Không reset purchase limit / stock counter.
+- Workaround phức tạp: tạo N item mới mỗi ngày → DB phình to.
 
-→ Pattern 1 không làm được vì không có "trigger point".
+→ **Dùng Pattern 2.**
 
-**Vấn đề 3: Workaround phức tạp**
+### 8.3. Dùng P1 standalone cho Flash Sale
 
-Để hack Pattern 1 cho daily reset: tạo N item mới mỗi ngày với `start_at`, `end_at` = phạm vi ngày đó → 100 shop × 10 item × 365 ngày = 365k row/năm. DB phình to.
+- Không trigger được notification "Sale bắt đầu" đúng giây.
+- Không init stock counter atomic.
+- Không integrate được queue chống thundering herd.
+- Fairness kém vì phụ thuộc clock skew client.
 
-### 7.2. Dùng Pattern 1 (Lazy) cho Flash Sale
+→ **Dùng Pattern 3 standalone.**
 
-**Vấn đề 1: Không trigger được notification "Sale bắt đầu"**
+### 8.4. Dùng P3 standalone cho Event Shop (nhiều events)
 
-Marketing nói: "Đúng 12h00, push notification toàn user." Pattern 1 không có job nào chạy lúc 12h00.
+- 100 event = 200 delayed jobs → tốn infra.
+- Admin sửa `end_at` → cancel + recreate job → code phức tạp.
+- Job failure → item stuck (is_active sai).
+- Over-engineering cho event 7 ngày.
 
-**Vấn đề 2: Không init stock atomic**
+→ **Dùng Hybrid 1+3 thay thế.**
 
-Flash sale 100 cái. Cần init counter = 100 tại đúng thời điểm start. Pattern 1 không có hook.
+### 8.5. Dùng P2 cho Event Shop
 
-**Vấn đề 3: Thundering herd**
+- Mỗi event cần 1 cron riêng → quản lý kinh hoàng.
+- Không tạo dynamic cron dễ dàng khi admin tạo event runtime.
+- Crontab không hỗ trợ giây.
 
-Pattern 1 không integrate queue → không shape traffic được.
+→ **Dùng Hybrid 1+3.**
 
-**Vấn đề 4: Fairness**
+### 8.6. Dùng Hybrid 1+3 cho Flash Sale
 
-User toàn cầu đồng hồ khác nhau → user lợi/thiệt khác nhau dựa vào clock skew.
+- Hybrid không thay đổi `is_active` — chỉ notify.
+- Nhưng flash sale cần gate rõ ràng: `is_active=FALSE` trước giờ mở.
+- Thundering herd cần init Redis counter atomic tại đúng giây.
+- Hybrid không đủ — cần Pattern 3 standalone.
 
-### 7.3. Dùng Pattern 2 (Cron) cho Event Shop
+### 8.7. Tổng kết
 
-**Vấn đề 1: Mỗi event cần 1 cron riêng**
-
-30 event = 30 cron entry. Quản lý kinh hoàng. Mỗi lần admin tạo event mới phải SSH vào server sửa crontab.
-
-**Vấn đề 2: Không scale với event tạo runtime**
-
-Admin tạo event qua web panel: "Sale mới, kết thúc 3 ngày sau". Pattern 2 không tạo dynamic cron dễ dàng.
-
-(Có dynamic scheduler runtime, nhưng đó về bản chất đã chuyển sang Pattern 3.)
-
-### 7.4. Dùng Pattern 3 (Delayed Job) cho Event Shop
-
-**Vấn đề 1: Tốn infra**
-
-100 event banner = 100 delayed job trong queue.
-
-**Vấn đề 2: Lifecycle phức tạp khi sửa**
-
-Admin sửa `end_at` → phải tìm job cũ, cancel, tạo job mới. Pattern 1 chỉ cần `UPDATE`.
-
-**Vấn đề 3: Over-engineering**
-
-Event 7 ngày không cần precision đến giây.
-
-### 7.5. Dùng Pattern 2 (Cron) cho Flash Sale
-
-**Vấn đề 1: Crontab không hỗ trợ giây**
-
-Crontab format: `phút giờ ngày tháng tuần`. Sale bắt đầu 12h00:30 → cron không làm được.
-
-**Vấn đề 2: Khó cancel dynamic**
-
-Admin muốn cancel flash sale → SSH sửa crontab. Pattern 3 chỉ cần `removeJob(jobId)`.
-
-### 7.6. Tổng kết
-
-| Use case | Pattern đúng | Pattern sai → vấn đề |
+| Use case | Pattern đúng | Pattern sai → hậu quả |
 |---|---|---|
-| Daily reset shop | Pattern 2 | P1: không reset đồng bộ, không reset counter |
-| Event shop deadline | Pattern 1 | P2: không scale; P3: tốn job, lifecycle phức tạp |
-| Flash sale precise | Pattern 3 | P1: không trigger, không init stock, không fair; P2: không có giây |
+| Daily reset shop | Pattern 2 | P1/Hybrid: không reset đồng bộ, không reset counter |
+| Event shop UX tốt | **Hybrid 1+3** | P1 alone: không notify; P3 alone: over-complex |
+| Event shop MVP nhanh | P1 standalone | P3: over-engineering |
+| Flash sale precise | Pattern 3 standalone | P1/Hybrid: không gate is_active, không init counter |
 
 ---
 
-## 8. Bảng quyết định nhanh
+## 9. Bảng quyết định nhanh
 
 ```
-Hỏi 1: Reset đồng bộ giữa tất cả player tại 1 giờ cố định?
+Hỏi 1: Reset đồng bộ tất cả player tại 1 giờ cố định + reset counter?
 ├── CÓ → Pattern 2 (Cron)
 └── KHÔNG → Hỏi 2
 
-Hỏi 2: Cần precision đến giây + trigger logic phức tạp?
-├── CÓ → Pattern 3 (Delayed Job)
+Hỏi 2: Flash sale precision đến giây + thundering herd + init counter atomic?
+├── CÓ → Pattern 3 Standalone
 └── KHÔNG → Hỏi 3
 
-Hỏi 3: Nhiều entity với deadline riêng?
-├── CÓ → Pattern 1 (Lazy Filter)
-└── KHÔNG → Pattern 1 hoặc Pattern 3 đều OK
+Hỏi 3: Nhiều event độc lập với deadline riêng?
+├── CÓ → Hỏi 4
+└── KHÔNG → Pattern 1 hoặc tùy use case
+
+Hỏi 4: Cần UX tốt (notify client real-time khi item xuất hiện/biến mất)?
+├── CÓ → Hybrid 1+3
+└── KHÔNG → Pattern 1 Standalone
 ```
 
 ---
 
-## 9. Độ trễ thực tế của Pattern 1 (sửa lại cho chính xác)
+## 10. Độ trễ thực tế của Pattern 1 và Hybrid
 
-Phần này **đính chính** một số nhận định trong các tài liệu trước.
+### 10.1. Pattern 1 KHÔNG phụ thuộc TTL cache để expire item
 
-### 9.1. Pattern 1 KHÔNG phụ thuộc cache TTL để hết hạn item
-
-**Nhận định sai trước đây:** "TTL cache 5 phút làm Pattern 1 trễ 5 phút."
-
-**Sự thật:**
-
-Pattern 1 hoạt động bằng cách filter `now < end_at` mỗi lần render. **Cache lưu raw data có `end_at`**, không cache đã filter. Vì vậy:
+Cache lưu **raw data** (có `end_at`), không cache kết quả đã filter. Item tự biến mất qua filter kể cả cache vô hạn:
 
 ```java
 // Cache vô hạn — không TTL
 shopCache.put(npcId, items);  // items có item A với end_at = 12:00
 
-// 11:55 — render dialog
-filter(items, now=11:55);  // hiện A
-
 // 12:01 — render dialog (cache vẫn có A)
-filter(items, now=12:01);  // KHÔNG hiện A nữa
+filter(items, now=12:01);  // KHÔNG hiện A nữa dù cache chưa expire
 ```
 
-→ **Item biến mất đúng giờ kể cả cache vô hạn.** TTL cache chỉ ảnh hưởng đồng bộ khi admin **sửa data** (qua WS `RELOAD_SHOP`), không liên quan tới item tự hết hạn.
+TTL cache chỉ ảnh hưởng đến đồng bộ khi admin **sửa data** (handled bởi WS `RELOAD_SHOP`), không liên quan tới item tự hết hạn.
 
-### 9.2. Vậy Pattern 1 trễ ở đâu thực sự?
-
-Độ trễ thực tế đến từ:
-
-**1. Đồng hồ client lệch (lớn nhất):**
-- User tự set giờ máy → lệch vài giây tới vài phút.
-- User đi du lịch chuyển múi giờ máy.
-- Đồng hồ máy drift theo thời gian (vài giây/ngày).
-
-→ **Fix: Cristian's Algorithm** (xem Section 11). Sau khi sync, lệch chỉ còn ~RTT/2 (vài chục ms).
-
-**2. UI tick interval:**
-- Countdown UI thường update mỗi 1000ms.
-- Item hết hạn 12:00:00.000, tick gần nhất 12:00:00.500 → lệch tối đa 1s.
-
-→ Fix: tăng tần suất tick gần thời điểm `end_at` (vd: 100ms khi còn < 10s).
-
-**3. Network round-trip lúc mua:**
-- Client click "Mua" → server xử lý → response.
-- Total ~100-500ms.
-
-→ Không phải vấn đề. Server validate `now < end_at` tại lúc transaction → an toàn.
-
-**4. Frame render rate:**
-- Game render 30-60fps → mỗi frame 16-33ms.
-- Item biến mất ở frame tiếp theo sau khi hết hạn.
-
-→ Không phải vấn đề thực tế.
-
-### 9.3. Tổng kết độ trễ Pattern 1
+### 10.2. Nguồn trễ thực tế
 
 | Nguồn trễ | Độ lớn | Fix |
 |---|---|---|
 | Cache TTL | **0ms** (không liên quan) | N/A |
-| Đồng hồ client lệch | Vài giây tới vài phút | **Cristian's Algorithm** |
+| Đồng hồ client lệch | Vài giây - vài phút | Cristian's Algorithm |
 | UI tick interval | ~500ms-1s | Tăng tick rate gần deadline |
-| Network round-trip | ~100-500ms (chỉ khi mua) | Server validate → an toàn |
+| Network round-trip (khi mua) | ~100-500ms | Server validate → an toàn |
 | Frame render | ~16-33ms | Không cần fix |
 
-**Sau khi fix bằng Cristian + tick rate cao gần deadline:** độ trễ ~100-300ms — **đủ chính xác cho event shop**.
+**Sau khi áp dụng Cristian + tick rate cao gần deadline:** độ trễ ~100-300ms — đủ cho event shop.
 
-**Vẫn không đủ cho flash sale** vì:
-1. Mỗi client tự sync, có thể có client mất gói/sync sai.
-2. Không có "trigger point" để init stock counter, push notification.
-3. Không integrate được với queue chống thundering herd.
+### 10.3. Hybrid 1+3 giảm trễ perceived thêm
+
+Với Hybrid, ngay cả khi filter có độ trễ 100-300ms, **WS event đến trước**:
+- Server push `RELOAD_SHOP` tại đúng `end_at`.
+- Client nhận event → fetch lại → filter chạy → item biến mất.
+- Perceived latency = network RTT (~50-200ms) thay vì phụ thuộc tick rate UI.
 
 ---
 
-## 10. Xử lý multi-region: Timezone & Clock Skew
+## 11. Xử lý multi-region: Timezone & Clock Skew
 
-Khi game có user toàn cầu (server châu Á, user Mỹ), có **2 vấn đề tách biệt**:
+### 11.1. Timezone không phải vấn đề nếu dùng UTC
 
-### 10.1. Vấn đề A — Timezone (múi giờ)
-
-**Nhầm lẫn phổ biến:** "Server châu Á và user Mỹ có múi giờ khác → time-limited item phức tạp."
-
-**Sự thật:** Timezone **không phải vấn đề** nếu tuân theo best practice:
-
-**1. Server LUÔN lưu thời gian dạng UTC (timestamp):**
+Server LUÔN lưu thời gian dạng UTC timestamp:
 
 ```sql
--- ĐÚNG: lưu UTC
+-- ĐÚNG
 end_at TIMESTAMP NOT NULL  -- '2026-05-09 12:00:00 UTC'
 
--- SAI: lưu local time
-end_at DATETIME NOT NULL   -- '2026-05-09 19:00:00' (không biết timezone nào)
+-- SAI
+end_at DATETIME NOT NULL   -- '2026-05-09 19:00:00' (không rõ timezone)
 ```
 
-UTC là **absolute** — không phụ thuộc múi giờ. Một timestamp UTC `1715256000000` là 1 thời điểm duy nhất trên toàn thế giới.
-
-**2. API trả timestamp UTC (millisecond Unix epoch):**
-
+API trả Unix epoch milliseconds:
 ```json
 {
-  "id": 123,
-  "name": "Skin Limited",
   "start_at": 1715169600000,
   "end_at": 1715256000000,
   "server_now": 1715200000000
 }
 ```
 
-**3. Client convert sang local timezone CHỈ khi hiển thị:**
-
+Client convert sang local timezone CHỈ khi hiển thị:
 ```java
-long endAtUtc = item.end_at;  // UTC timestamp
+long endAtUtc = item.end_at;
 String localDisplay = formatLocalTime(endAtUtc, deviceTimezone);
-// User PHT: "Hết hạn 9/5/2026 20:00 PHT"
-// User EST: "Hết hạn 9/5/2026 08:00 EST"
+// VN: "9/5/2026 20:00 ICT"
+// US: "9/5/2026 08:00 EST"
 ```
 
-→ Cùng 1 thời điểm UTC, hiển thị khác nhau theo địa phương — **đây là behavior mong muốn**.
-
-### 10.2. Vấn đề B — Clock Skew (đồng hồ máy lệch)
-
-**Đây mới là vấn đề thật.** Hai loại lệch:
-
-**Loại 1 — Lệch hệ thống:**
-- User tự set giờ máy lệch (cố ý hoặc vô tình).
-- Đồng hồ máy drift theo thời gian.
-- User đi du lịch chuyển múi giờ máy nhưng app cache giờ cũ.
-
-**Loại 2 — Lệch nhỏ tự nhiên:**
-- Đồng hồ phần cứng có drift ~vài giây/ngày.
-- Sync NTP có thể không chính xác hoàn hảo.
-
-**Hậu quả với Pattern 1:**
+### 11.2. Clock Skew là vấn đề thực sự với Pattern 1
 
 ```
-Server thật: 11:59:55 UTC
-Item end_at: 12:00:00 UTC
+Server thật: 11:59:55 UTC — item end_at: 12:00:00
 
-User A (đồng hồ chính xác):
-  System.currentTimeMillis() = 11:59:55 → item còn → mua được
+User A (đồng hồ chính xác): thấy item còn hạn → mua được
+User B (đồng hồ lệch +10s): thấy 12:00:05 → item đã hết → không thấy
 
-User B (đồng hồ lệch +10 giây):
-  System.currentTimeMillis() = 12:00:05 → item đã hết → không thấy
-  Nhưng server thật vẫn 11:59:55 → User A đang mua được mà B không
-  → User B thua thiệt
+→ User B bị thiệt dù server thật vẫn cho mua
 ```
 
-**Hậu quả với Pattern 3:**
+**Hybrid 1+3 giảm vấn đề này:** WS event từ server push đồng thời → tất cả client reload cùng lúc. Không phụ thuộc clock skew để biết khi nào item hết hạn.
 
-Server push event `FLASH_SALE_END` đồng thời cho tất cả → tất cả client cùng nhận → fair. Nhưng vẫn có thể delay vài trăm ms vì network.
+### 11.3. Khi nào Clock Skew quan trọng
 
-### 10.3. Khi nào Clock Skew là vấn đề thực sự?
-
-| Use case | Clock skew quan trọng? | Lý do |
-|---|---|---|
-| Event shop 7 ngày | **Không** | Lệch 10s vs 604,800s = 0.0017%, không ai care |
-| Daily reset cố định 4h sáng | **Trung bình** | Player có thể vào sớm/muộn 1-2 phút |
-| Flash sale 1 giờ | **Có** | Lệch 10s = 0.28% — user thấy sale lệch nhau |
-| Flash sale 1 phút | **Rất quan trọng** | Lệch 10s = 16% — không công bằng nghiêm trọng |
-
-→ **Pattern 1 với Cristian's algorithm đủ tốt cho event shop**, không cần Pattern 3.
+| Use case | Clock skew quan trọng? |
+|---|---|
+| Event shop 7 ngày | Không (lệch 10s vs 604,800s = 0.0017%) |
+| Daily reset 4h sáng | Trung bình |
+| Flash sale 1 giờ | Có (lệch 10s = 0.28%) |
+| Flash sale 1 phút | Rất quan trọng (lệch 10s = 16%) |
 
 ---
 
-## 11. Cristian's Algorithm — đồng bộ đồng hồ client với server
+## 12. Cristian's Algorithm — đồng bộ đồng hồ client với server
 
-### 11.1. Nguyên lý
+### 12.1. Nguyên lý
 
-Cristian's Algorithm (Flaviu Cristian, 1989) là phương pháp chuẩn để đồng bộ đồng hồ client với server qua mạng.
+```
+T0 = client gửi request
+Ts = server timestamp trong response
+T1 = client nhận response
 
-**Ý tưởng:**
-- Client gửi request lúc `T0` (theo đồng hồ client).
-- Server reply với timestamp server `Ts` (theo đồng hồ server).
-- Client nhận response lúc `T1` (theo đồng hồ client).
-- RTT (round-trip time) = `T1 - T0`.
-- Giả định mạng đối xứng: one-way delay ≈ `RTT/2`.
-- Server time tại lúc client nhận response: `Ts + RTT/2`.
-- **Clock offset** = `(Ts + RTT/2) - T1`.
+RTT = T1 - T0
+One-way delay ≈ RTT/2
+Server time tại T1 = Ts + RTT/2
+Offset = (Ts + RTT/2) - T1
 
-Sau đó client luôn dùng `realNow = System.currentTimeMillis() + offset` thay vì `System.currentTimeMillis()` trực tiếp.
+→ realNow = System.currentTimeMillis() + offset
+```
 
-### 11.2. Implementation Java client
+### 12.2. Implementation Java
 
 ```java
 public class ClockSync {
-    private long offset = 0;  // server_now - client_now
-    private final TimeApi timeApi;
+    private long offset = 0;
 
     public void syncWithServer() {
-        long t0 = System.currentTimeMillis();
-        TimeResponse response = timeApi.getServerTime();  // Ts
-        long t1 = System.currentTimeMillis();
+        int samples = 5;
+        long bestRtt = Long.MAX_VALUE;
+        long bestOffset = 0;
 
-        long rtt = t1 - t0;
-        long oneWayDelay = rtt / 2;
+        for (int i = 0; i < samples; i++) {
+            long t0 = System.currentTimeMillis();
+            TimeResponse response = timeApi.getServerTime();
+            long t1 = System.currentTimeMillis();
 
-        // Server time tại t1
-        long serverNowAtT1 = response.serverNow + oneWayDelay;
-
-        // Offset = server_now - client_now
-        this.offset = serverNowAtT1 - t1;
-
-        log.info("Clock synced. RTT: {}ms, offset: {}ms", rtt, offset);
+            long rtt = t1 - t0;
+            if (rtt < bestRtt) {
+                bestRtt = rtt;
+                bestOffset = (response.serverNow + rtt / 2) - t1;
+            }
+        }
+        this.offset = bestOffset;
     }
 
     public long getServerNow() {
@@ -801,56 +1504,7 @@ public class ClockSync {
 }
 ```
 
-### 11.3. Cải tiến: Multiple readings + min RTT
-
-Theo nghiên cứu, "Want to improve accuracy? Take multiple readings and use the minimum RTT for a tighter bound."
-
-```java
-public void syncWithServer() {
-    int samples = 5;
-    long bestRtt = Long.MAX_VALUE;
-    long bestOffset = 0;
-
-    for (int i = 0; i < samples; i++) {
-        long t0 = System.currentTimeMillis();
-        TimeResponse response = timeApi.getServerTime();
-        long t1 = System.currentTimeMillis();
-
-        long rtt = t1 - t0;
-        if (rtt < bestRtt) {
-            bestRtt = rtt;
-            bestOffset = (response.serverNow + rtt / 2) - t1;
-        }
-    }
-
-    this.offset = bestOffset;
-    log.info("Clock synced. Best RTT: {}ms, offset: {}ms", bestRtt, bestOffset);
-}
-```
-
-Lý do: chọn sample có RTT nhỏ nhất → giả định "mạng đối xứng" chính xác hơn → offset chuẩn hơn.
-
-### 11.4. Khi nào sync clock?
-
-**Cách 1 — Sync khi vào game (đơn giản nhất):**
-
-```java
-@OnLogin
-public void onPlayerLogin() {
-    clockSync.syncWithServer();
-}
-```
-
-**Cách 2 — Sync định kỳ (chính xác hơn):**
-
-```java
-// Sync mỗi 5 phút
-scheduler.scheduleAtFixedRate(() -> {
-    clockSync.syncWithServer();
-}, 0, 5, TimeUnit.MINUTES);
-```
-
-**Cách 3 — Embed serverNow vào mọi response (tận dụng API call sẵn có):**
+### 12.3. Embed serverNow vào mọi response (khuyến nghị)
 
 ```typescript
 // Server middleware
@@ -861,7 +1515,7 @@ app.use((req, res, next) => {
 ```
 
 ```java
-// Client interceptor
+// Client OkHttp interceptor
 public Response intercept(Chain chain) {
     long t0 = System.currentTimeMillis();
     Response response = chain.proceed(request);
@@ -875,212 +1529,220 @@ public Response intercept(Chain chain) {
 }
 ```
 
-→ Mỗi API call tự động cập nhật clock offset, không cần endpoint riêng.
-
-### 11.5. Hạn chế của Cristian's Algorithm
-
-Theo Wikipedia: "Cristian observed that this simple algorithm is probabilistic, in that it only achieves synchronization when the round-trip time of the request is significantly shorter than the desired accuracy."
-
-**Hạn chế:**
-
-1. **Giả định mạng đối xứng** (request delay = response delay). Thực tế mạng không đều → có sai số.
-2. **Phụ thuộc vào server reliable.** Nếu server bị tấn công NTP poisoning → toàn bộ client lệch.
-3. **Không phù hợp khi RTT cao** (vd: kết nối vệ tinh).
-
-**Tham khảo thay thế:**
-
-- **Berkeley Algorithm:** không cần "true time", lấy trung bình clocks của tất cả nodes.
-- **NTP/PTP:** chính xác hơn nhưng phức tạp hơn nhiều.
-
-→ Cho game mobile, **Cristian's là đủ**: simple, hiệu quả, error chỉ vài chục ms.
-
-### 11.6. Ví dụ tính toán cụ thể
-
-```
-T0 = 08:02:01.670 (client)
-Ts = 08:02:02.130 (server, gửi về)
-T1 = 08:02:04.325 (client nhận)
-
-RTT = T1 - T0 = 2.655s
-One-way delay ≈ RTT/2 = 1.328s
-Server time tại T1 = Ts + 1.328 = 08:02:03.458
-Offset = 08:02:03.458 - 08:02:04.325 = -867ms
-
-→ Client lệch nhanh hơn server 867ms.
-→ Mỗi lần check: realNow = clientNow - 867ms
-```
-
-(Ví dụ từ Cambridge distributed systems lecture.)
-
-### 11.7. Tích hợp với Pattern 1
+### 12.4. Tích hợp với Hybrid 1+3
 
 ```java
-public class ShopFilter {
-    private final ClockSync clockSync;
+public List<ShopItem> getDisplayItems(int npcId) {
+    long now = clockSync.getServerNow();  // serverNow, không phải System.currentTimeMillis()
 
-    public List<ShopItemServerData> filterActiveItems(
-        List<ShopItemServerData> items
-    ) {
-        long now = clockSync.getServerNow();  // ← QUAN TRỌNG: dùng serverNow
-
-        return items.stream()
-            .filter(item -> item.is_active)
-            .filter(item -> item.start_at == null || item.start_at <= now)
-            .filter(item -> item.end_at == null || item.end_at > now)
-            .collect(Collectors.toList());
-    }
+    return shopCache.get(npcId).stream()
+        .filter(item -> item.is_active)
+        .filter(item -> item.start_at == null || item.start_at <= now)
+        .filter(item -> item.end_at == null || item.end_at > now)
+        .collect(Collectors.toList());
 }
 ```
 
-Sau khi áp dụng Cristian:
-- User Mỹ và user châu Á đều thấy item biến mất gần như cùng lúc (lệch ~50-100ms).
-- User cố ý sửa giờ máy → vẫn không hack được vì server validate khi mua.
+**Với Hybrid:** Cristian vẫn quan trọng cho countdown UI chính xác, nhưng ít critical hơn P1 standalone vì WS event là trigger chính để reload.
 
 ---
 
-## 12. Kiến trúc kết hợp cả 3 patterns
-
-Game lớn dùng **kết hợp cả 3** trong 1 hệ thống:
+## 13. Kiến trúc kết hợp tổng thể
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                       Game Backend                              │
-│                                                                 │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐   │
-│  │  Daily Shop     │  │  Event Shop     │  │  Flash Sale  │   │
-│  │                 │  │                 │  │              │   │
-│  │  Pattern 2      │  │  Pattern 1      │  │  Pattern 3   │   │
-│  │  Cron 4h sáng   │  │  Filter         │  │  Delayed     │   │
-│  │  reset stock    │  │  start_at /     │  │  Job với     │   │
-│  │                 │  │  end_at         │  │  precision   │   │
-│  └─────────────────┘  └─────────────────┘  └──────────────┘   │
-│         │                     │                    │           │
-│         └─────────────────────┼────────────────────┘           │
-│                               │                                │
-│                  ┌────────────▼────────────┐                   │
-│                  │  Time Service           │                   │
-│                  │  - Trả serverNow        │                   │
-│                  │  - X-Server-Now header  │                   │
-│                  │  → Client sync Cristian │                   │
-│                  └────────────┬────────────┘                   │
-│                               │                                │
-│                  ┌────────────▼────────────┐                   │
-│                  │  Shop API + Cache       │                   │
-│                  │  (Redis + DB)           │                   │
-│                  └────────────┬────────────┘                   │
-│                               │                                │
-│                  ┌────────────▼────────────┐                   │
-│                  │  WS Broadcast Layer     │                   │
-│                  │  - DAILY_RESET          │                   │
-│                  │  - RELOAD_SHOP          │                   │
-│                  │  - FLASH_SALE_START/END │                   │
-│                  └─────────────────────────┘                   │
-└────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                          Game Backend                                 │
+│                                                                       │
+│  ┌──────────────────┐  ┌───────────────────────┐  ┌───────────────┐  │
+│  │   Daily Shop     │  │   Event Shop          │  │  Flash Sale   │  │
+│  │                  │  │                       │  │               │  │
+│  │   Pattern 2      │  │   Hybrid 1+3          │  │  Pattern 3    │  │
+│  │   Cron 4h sáng   │  │   ┌─────────────────┐ │  │  Standalone   │  │
+│  │   reset stock    │  │   │ DB: start_at/   │ │  │  is_active    │  │
+│  │   reset limit    │  │   │      end_at     │ │  │  thay đổi     │  │
+│  │                  │  │   │ Filter logic    │ │  │  theo job     │  │
+│  │                  │  │   │ BullMQ notify   │ │  │               │  │
+│  │                  │  │   └─────────────────┘ │  │               │  │
+│  └──────────────────┘  └───────────────────────┘  └───────────────┘  │
+│         │                         │                       │           │
+│         └─────────────────────────┼───────────────────────┘           │
+│                                   │                                   │
+│                    ┌──────────────▼──────────────┐                    │
+│                    │  Time Service               │                    │
+│                    │  - GET /time → server_now   │                    │
+│                    │  - X-Server-Now header      │                    │
+│                    │  → Client Cristian sync     │                    │
+│                    └──────────────┬──────────────┘                    │
+│                                   │                                   │
+│                    ┌──────────────▼──────────────┐                    │
+│                    │  Shop API + Cache            │                   │
+│                    │  Redis (raw data, has        │                   │
+│                    │  start_at/end_at)            │                   │
+│                    │  Filter tại request time     │                   │
+│                    └──────────────┬──────────────┘                    │
+│                                   │                                   │
+│                    ┌──────────────▼──────────────┐                    │
+│                    │  BullMQ Queue               │                    │
+│                    │  - notify-item-available     │                   │
+│                    │  - notify-item-expired       │                   │
+│                    │  - start-flash-sale          │                   │
+│                    │  - end-flash-sale            │                   │
+│                    └──────────────┬──────────────┘                    │
+│                                   │                                   │
+│                    ┌──────────────▼──────────────┐                    │
+│                    │  WS Broadcast Layer         │                    │
+│                    │  - DAILY_RESET              │                    │
+│                    │  - RELOAD_SHOP              │                    │
+│                    │  - FLASH_SALE_START/END     │                    │
+│                    └─────────────────────────────┘                    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Ví dụ Genshin Impact:
+### Ví dụ mapping trong game thực tế
 
-- **Daily commission, daily shop refresh** → Pattern 2 (cron 4h sáng).
-- **Event banner Yelan (21 ngày)** → Pattern 1 (`from`/`to` trong gacha.json).
-- **Bonus drop rate event 1 giờ** → Pattern 3 (delayed job).
+**Genshin Impact:**
+- Daily commission, shop refresh → Pattern 2 (cron 4h sáng).
+- Event banner Yelan (21 ngày) → Hybrid 1+3 (`from`/`to` + WS notify khi banner bắt đầu/kết thúc).
+- Bonus drop rate event 1 giờ → Pattern 3 standalone.
 
-### Ví dụ WoW:
+**WoW:**
+- Daily/Weekly raid lockout → Pattern 2 (cron).
+- Hallow's End event (21 ngày) → Hybrid 1+3 (`game_event` table + event trigger WS).
+- Server first achievement window → Pattern 3 standalone.
 
-- **Daily/Weekly raid lockout** → Pattern 2 (cron).
-- **Hallow's End event (21 ngày)** → Pattern 1 (`game_event` table).
-- **Server first kill achievement window** → Pattern 3 (delayed job).
-
-### Ví dụ MLBB (Mobile Legends):
-
-- **Daily reset 16:00 PHT** → Pattern 2 (cron UTC+8).
-- **Starlight monthly cycle** → Pattern 2 (cron monthly).
-- **Limited skin event 14 ngày** → Pattern 1 (start/end timestamp).
+**MLBB:**
+- Daily reset 16:00 PHT → Pattern 2 (cron UTC+8).
+- Limited skin event 14 ngày → Hybrid 1+3.
 
 ---
 
-## 13. Tham khảo từ industry
+## 14. Đánh giá hiệu năng và khả năng mở rộng
 
-### 13.1. Genshin Impact
+### 14.1. Hiệu năng DB
 
-Schema gacha banner: ISO 8601 với UTC+8: "Each banner entry defines precise temporal boundaries using ISO 8601 format with UTC+8 timezone offset (China Standard Time)"
+| Pattern | Số lượng write khi item expire | Read complexity | Index cần thiết |
+|---|---|---|---|
+| P1 Standalone | 0 (không write) | Filter trên 2 field | `(is_active, end_at)` |
+| P2 Cron | Nhiều (reset toàn bộ) | O(n) mỗi cron | Tùy reset logic |
+| P3 Standalone | 1 write/item (UPDATE is_active) | Chỉ `WHERE is_active=TRUE` | `(is_active)` |
+| Hybrid 1+3 | 0 (không write) | Filter trên 2 field | `(is_active, end_at)` |
 
-Daily reset 4h sáng theo timezone server.
+**Nhận xét:** P1 và Hybrid win về write throughput. P3 win về read simplicity (`WHERE is_active=TRUE` nhanh hơn filter 2 field). Với N < 10,000 items, sự khác biệt không đáng kể.
 
-### 13.2. Project SEKAI
+### 14.2. Hiệu năng queue
 
-Schema gacha banner: `startAt`, `endAt` (milliseconds timestamp).
+| Pattern | Jobs/item | Jobs tổng (1000 events) | Job payload | Job failure impact |
+|---|---|---|---|---|
+| P1 Standalone | 0 | 0 | N/A | N/A |
+| P3 Standalone | 2 | 2,000 | Thay đổi state + notify | High (item stuck) |
+| Hybrid 1+3 | 2 | 2,000 | Chỉ notify | Low (chỉ mất notify) |
 
-Logic: "The system identifies active banners by comparing current time against banner start/end timestamps"
+**Nhận xét:** Hybrid và P3 tốn infra như nhau về số job, nhưng Hybrid an toàn hơn vì job failure không ảnh hưởng đến data.
 
-→ Pattern 1 thuần.
+### 14.3. Khả năng mở rộng
 
-### 13.3. WoW (MaNGOS emulator)
+**Pattern 1 Standalone:**
+- Scale tốt nhất: O(1) ops khi thêm item mới.
+- Horizontal scale dễ: mọi app server filter independently.
+- Không có shared state ngoài DB.
+
+**Pattern 2 (Cron):**
+- Scale tốt: 1 cron/ngày, distributed lock đảm bảo chỉ 1 node chạy.
+- Bottleneck: tất cả reset xảy ra cùng lúc → DB spike tại giờ reset.
+
+**Pattern 3 Standalone:**
+- Scale với infra: BullMQ hỗ trợ worker pool, horizontal scale workers.
+- Bottleneck: Redis queue với 2N items có thể là bottleneck khi N lớn.
+- Khó scale admin panel: mỗi edit end_at = 1 job operation.
+
+**Hybrid 1+3:**
+- Scale gần bằng P1 về DB.
+- Queue chỉ dùng cho notify, nhẹ hơn P3 standalone (payload nhỏ, không có DB write trong worker).
+- Redis queue với 2N jobs nhẹ hơn vì mỗi job xử lý nhanh hơn (chỉ broadcast, không write DB).
+
+### 14.4. Khả năng maintain
+
+| Tiêu chí | P1 | P2 | P3 | Hybrid 1+3 |
+|---|---|---|---|---|
+| Admin sửa end_at | ✅ Đơn giản | N/A | ❌ Cancel+recreate job | ✅ Update + swap notify |
+| Debug khi item không hiện | ✅ Kiểm tra 2 field | Trung bình | ❌ Phải check job status | ✅ Kiểm tra 2 field + job |
+| Onboarding dev mới | ✅ Dễ hiểu | Trung bình | ❌ Phức tạp | Trung bình |
+| Test coverage | ✅ Unit test filter | Trung bình | ❌ Cần mock queue/timer | Trung bình |
+| Rollback khi lỗi | ✅ UPDATE 1 row | Cần idempotent | ❌ Phức tạp | ✅ UPDATE + log |
+
+### 14.5. Tóm tắt đánh giá tổng thể
+
+| Tiêu chí | P1 | P2 | P3 | Hybrid 1+3 |
+|---|---|---|---|---|
+| **Hiệu năng** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ |
+| **Scale** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ |
+| **UX real-time** | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **Maintain** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐ |
+| **Reliability** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **Phức tạp impl** | ⭐⭐⭐⭐⭐ (đơn giản) | ⭐⭐⭐⭐ | ⭐⭐ (phức tạp) | ⭐⭐⭐ |
+
+**Kết luận cho event shop:** Hybrid 1+3 là lựa chọn cân bằng tốt nhất giữa UX, reliability và maintainability. Pattern 1 standalone phù hợp cho MVP hoặc khi team chưa có WS infrastructure.
+
+---
+
+## 15. Tham khảo từ industry
+
+### 15.1. Genshin Impact
+
+Schema gacha banner: ISO 8601 với UTC+8. Daily reset 4h sáng theo timezone server. Event banner với `from`/`to` field rõ ràng — Pattern 1/Hybrid.
+
+### 15.2. Project SEKAI
+
+`startAt`, `endAt` dạng milliseconds timestamp. Logic: "The system identifies active banners by comparing current time against banner start/end timestamps" → Pattern 1 thuần.
+
+### 15.3. WoW (MaNGOS emulator)
 
 Bảng `game_event` với `start_time`, `end_time`. Daily reset 8h sáng PST/CET.
 
-### 13.4. MLBB (Mobile Legends)
+### 15.4. MLBB (Mobile Legends)
 
-Daily reset 16:00 PHT (UTC+8): "Mobile Legends: Bang Bang uses UTC+8 as its server timezone"
+Daily reset 16:00 PHT (UTC+8). "Server time always takes priority over your local timezone" → Pattern 2 cho daily reset, Pattern 1/Hybrid cho event content.
 
-→ Pattern 2 cho daily reset, **server time priority**: "server time always takes priority over your local timezone".
+### 15.5. Cristian's Algorithm
 
-### 13.5. Trophy (gamification SaaS)
+Flaviu Cristian (1989). Tham khảo: Cambridge distributed systems lecture notes, GeeksforGeeks, Wikipedia.
 
-Best practice cho streak countdown: "The expires timestamp is in UTC and represents the end of the user's current streak period in their local timezone. On the client, convert it with toLocaleString()"
+### 15.6. UTC best practice (AppSignal)
 
-Lưu UTC, convert local khi hiển thị.
-
-### 13.6. Cristian's Algorithm
-
-Flaviu Cristian (1989). Tham khảo:
-- Cambridge distributed systems lecture notes.
-- GeeksforGeeks: T_CLIENT = T_SERVER + (T1 - T0)/2.
-- Wikipedia: probabilistic algorithm cho intranet/low-latency.
-
-### 13.7. UTC best practice (AppSignal)
-
-"Using UTC reduces the need for complex time zone conversions, removing the risk of variations in data handling and processing"
-
-→ Server LUÔN UTC, client convert khi hiển thị.
+"Using UTC reduces the need for complex time zone conversions" → Server LUÔN UTC, client convert khi hiển thị.
 
 ---
 
-## 14. Kết luận
+## Kết luận
 
-### 14.1. Tóm tắt
+### Tóm tắt patterns
 
-| Pattern | Use case chính | Lý do bắt buộc |
+| Pattern | Use case chính | Khi nào dùng |
 |---|---|---|
-| **Pattern 1 (Lazy)** | Event shop deadline | Scale O(1), độc lập, đơn giản |
-| **Pattern 2 (Cron)** | Daily/weekly reset | Đồng bộ + reset counter |
-| **Pattern 3 (Delayed Job)** | Flash sale precise | Trigger logic + fairness + chống thundering herd |
+| **Pattern 1 Standalone** | Event shop MVP | Không cần notify real-time, team nhỏ, infra đơn giản |
+| **Pattern 2 (Cron)** | Daily/Weekly reset | Reset đồng bộ + reset counter toàn server |
+| **Pattern 3 Standalone** | Flash sale precise | Precision đến giây + thundering herd + init counter |
+| **Hybrid 1+3** | Event shop production | UX tốt + reliability cao + admin dễ maintain |
 
-### 14.2. Đính chính các điểm sai trong tài liệu trước
+### Đính chính các điểm từ tài liệu trước
 
-1. **Pattern 1 KHÔNG phụ thuộc TTL cache.** Item tự biến mất qua filter logic kể cả cache vô hạn.
+1. **Pattern 1 KHÔNG phụ thuộc TTL cache.** Item tự biến mất qua filter dù cache vô hạn.
+2. **Pattern 1 KHÔNG cần WS event "trigger hết hạn".** Client tự filter. WS chỉ cần khi admin sửa data.
+3. **Pattern 3 standalone ≠ Pattern 1 với jobs thêm vào.** P3 thực sự thay đổi `is_active` trong DB.
+4. **Hybrid 1+3 là kết hợp thông minh:** Jobs chỉ làm nhiệm vụ notify, không thay đổi state → job failure không phá data, admin workflow đơn giản.
+5. **Multi-region** không phải vấn đề nếu server lưu UTC + client convert khi hiển thị + Cristian's algorithm fix clock skew.
 
-2. **Pattern 1 KHÔNG cần WS event "trigger hết hạn".** Client tự filter. WS event chỉ cần khi admin **sửa data**.
+### Lộ trình áp dụng theo phase
 
-3. **Độ trễ Pattern 1 thực tế ~100-300ms** sau khi áp dụng Cristian's algorithm + tick rate cao gần deadline. Đủ chính xác cho event shop.
+**Phase 1 (MVP):** Shop NPC thường → chỉ `is_active`, không cần time pattern.
 
-4. **Multi-region (server châu Á, user Mỹ)** không phải vấn đề nếu:
-   - Server lưu UTC.
-   - Client convert local khi hiển thị.
-   - Áp dụng Cristian's algorithm để fix clock skew.
+**Phase 2 (Event content, team nhỏ):** Thêm Pattern 1 standalone: `start_at`, `end_at` UTC, Cristian's algorithm, server validate khi transaction.
 
-### 14.3. Áp dụng cho game của bạn
+**Phase 3 (Event content, production):** Nâng lên Hybrid 1+3: thêm BullMQ notify jobs, WS broadcast khi item start/end.
 
-**Phase 1 (MVP):** shop NPC thường, không cần pattern thời gian → chỉ `is_active`.
+**Phase 4 (Daily content):** Thêm Pattern 2 (cron) khi có daily shop/daily quest.
 
-**Phase 2 (Event content):**
-- Thêm Pattern 1: `start_at`, `end_at` UTC.
-- Thêm Cristian's algorithm để sync clock client.
-- Server middleware trả `X-Server-Now` header.
-- Server validate `now < end_at` lúc transaction.
-
-**Phase 3 (Daily content):** thêm Pattern 2 (cron) khi có daily shop / daily quest.
-
-**Phase 4 (Flash sale):** thêm Pattern 3 chỉ khi business yêu cầu rõ ràng.
+**Phase 5 (Flash sale):** Thêm Pattern 3 standalone chỉ khi business yêu cầu rõ ràng.
 
 ---
 
@@ -1089,22 +1751,24 @@ Flaviu Cristian (1989). Tham khảo:
 | Version | Ngày | Nội dung |
 |---|---|---|
 | 1.0 | 2026-05-09 | Khởi tạo, phân tích 3 patterns |
-| 2.0 | 2026-05-09 | Đính chính độ trễ Pattern 1, bổ sung Cristian's algorithm, multi-region timezone handling |
+| 2.0 | 2026-05-09 | Đính chính độ trễ Pattern 1, bổ sung Cristian's algorithm, multi-region |
+| 3.0 | 2026-05-12 | Bổ sung Hybrid 1+3, chi tiết P1/P3 standalone, đánh giá hiệu năng và khả năng mở rộng toàn diện |
 
 ---
 
 ## Tham khảo
 
-1. **Genshin Impact** - Daily/weekly reset & gacha banner schema
-2. **World of Warcraft** - Daily/weekly reset architecture
-3. **Project SEKAI** - Gacha banner với startAt/endAt
-4. **WoW MaNGOS Emulator** - game_event table
-5. **Mobile Legends Bang Bang** - Daily reset 16:00 PHT
-6. **AlgoMaster** - Flash Sale system design
-7. **CrackingWalnuts** - Flash sale architecture với queue
-8. **Cristian, F. (1989)** - "Probabilistic clock synchronization"
-9. **Cambridge Distributed Systems Lecture Notes** - Cristian's algorithm example
-10. **GeeksforGeeks** - Cristian's Algorithm formula
-11. **Wikipedia** - Cristian's algorithm
-12. **AppSignal** - UTC best practices
-13. **Trophy** - Gamification timezone handling
+1. **Genshin Impact** — Daily/weekly reset & gacha banner schema
+2. **World of Warcraft** — Daily/weekly reset architecture
+3. **Project SEKAI** — Gacha banner với startAt/endAt
+4. **WoW MaNGOS Emulator** — game_event table
+5. **Mobile Legends Bang Bang** — Daily reset 16:00 PHT
+6. **AlgoMaster** — Flash Sale system design
+7. **CrackingWalnuts** — Flash sale architecture với queue
+8. **Cristian, F. (1989)** — "Probabilistic clock synchronization"
+9. **Cambridge Distributed Systems Lecture Notes** — Cristian's algorithm example
+10. **GeeksforGeeks** — Cristian's Algorithm formula
+11. **Wikipedia** — Cristian's algorithm
+12. **AppSignal** — UTC best practices
+13. **Trophy** — Gamification timezone handling
+14. **BullMQ** — Job queue documentation
