@@ -1,0 +1,1 @@
+export const SHOP_START_QUEUE = 'shop-start';

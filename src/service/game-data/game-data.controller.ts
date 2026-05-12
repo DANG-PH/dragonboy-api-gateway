@@ -35,12 +35,14 @@ import {
   ItemBaseDto,
 } from '../../../dto/game-data.dto';
 import { ClientProxy } from '@nestjs/microservices';
+import { ShopQueueService } from './queue/shop-queue.service';
 
 @ApiTags('Api Game Data')
 @Controller('game-data')
 export class GameDataController {
   constructor(
     private readonly gameDataService: GameDataService,
+    private readonly shopQueueService: ShopQueueService,
     @Inject(String(process.env.RABBIT_GAME_SERVICE)) private readonly gameClient: ClientProxy,
   ) {}
 
@@ -181,11 +183,28 @@ export class GameDataController {
   @ApiOperation({ summary: 'Thêm item vào shop NPC (ADMIN)(WEB)' })
   @ApiBody({ type: ThemShopItemRequestDto })
   async themShopItem(@Body() body: ThemShopItemRequestDto): Promise<NpcShopItemDto> {
-    const result = await this.gameDataService.handleThemShopItem(body);
-    if (result != null) {
-      this.gameClient.emit('game.reload_shop', { npcId: result.npc_base_id });
-    }
-    return result;
+      const result = await this.gameDataService.handleThemShopItem(body);
+      if (result == null) return result;
+
+      const now = Date.now();
+      const startAt = body.start_at;
+
+      // Chỉ set job cho start at (đây là lợi thế của pattern hybrid 1+3, xem trong docs ở api gateway)
+      // Vì end at thì client tự filter khi hết hạn và server author nên server chỉ cần trigger N job cho start chứ k cần N job cho end như pattern 3 nữa, và cũng tối ưu cho pattern 1 hơn về notification và setup tương lai, vì pattern 1 k có điểm hook point, user phải out ra vào lại game,...
+      if (startAt && startAt > now) {
+          // Item chưa đến giờ → schedule job tại start_at
+          // KHÔNG emit reload ngay vì client fetch về sẽ bị filter loại ra
+          await this.shopQueueService.scheduleStartItem(
+              result.id,
+              result.npc_base_id,
+              startAt,
+          );
+      } else {
+          // Item active ngay (start_at đã qua hoặc null) → emit reload
+          this.gameClient.emit('game.reload_shop', { npcId: result.npc_base_id });
+      }
+
+      return result;
   }
 
   @Patch('npc-shop')
@@ -195,11 +214,29 @@ export class GameDataController {
   @ApiOperation({ summary: 'Sửa item trong shop NPC (ADMIN)(WEB)' })
   @ApiBody({ type: SuaShopItemRequestDto })
   async suaShopItem(@Body() body: SuaShopItemRequestDto): Promise<NpcShopItemDto> {
-    const result = await this.gameDataService.handleSuaShopItem(body);
-    if (result != null) {
+      const result = await this.gameDataService.handleSuaShopItem(body);
+      if (result == null) return result;
+
+      const now = Date.now();
+      const startAt = body.start_at;
+
+      // Luôn cancel job cũ (phòng trường hợp admin sửa start_at hoặc bỏ start_at)
+      await this.shopQueueService.removeStartJob(result.id);
+
+      // Nếu start_at mới còn trong tương lai → schedule job mới
+      if (startAt && startAt > now) {
+          await this.shopQueueService.scheduleStartItem(
+              result.id,
+              result.npc_base_id,
+              startAt,
+          );
+      }
+
+      // Luôn emit reload — admin sửa item đang active (đổi giá, đổi tab...)
+      // → client cần biết để refresh. Nếu item chưa đến giờ, server filter sẽ loại ra → an toàn.
       this.gameClient.emit('game.reload_shop', { npcId: result.npc_base_id });
-    }
-    return result;
+
+      return result;
   }
 
   @Delete('npc-shop')
@@ -209,10 +246,14 @@ export class GameDataController {
   @ApiOperation({ summary: 'Xóa item khỏi shop NPC (ADMIN)(WEB)' })
   @ApiQuery({ name: 'id', type: Number })
   async xoaShopItem(@Query() query: XoaShopItemRequestDto): Promise<void> {
-    const result = await this.gameDataService.handleXoaShopItem(query);
-    if (result != null) {
+      const result = await this.gameDataService.handleXoaShopItem(query);
+      if (result == null) return;
+
+      // Hủy job pending (nếu item bị xóa khi đang chờ start_at)
+      await this.shopQueueService.removeStartJob(query.id);
+
+      // Emit reload để client xóa item khỏi UI
       this.gameClient.emit('game.reload_shop', { npcId: result.npcId });
-    }
   }
 
   // ===== ITEM BASE =====
