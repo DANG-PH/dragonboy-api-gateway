@@ -1,9 +1,9 @@
-# Tài liệu kỹ thuật: Patterns xử lý Time-limited Items trong Game
+# Tài liệu kỹ thuật: Patterns xử lý Time-limited Items trong Game Realtime
 
 > **Phiên bản:** 3.0
 > **Ngày:** 2026-05-12
 > **Trạng thái:** Tham khảo kỹ thuật
-> **Đối tượng đọc:** Backend dev, Game architect, Tech Lead
+> **Đối tượng đọc:** Backend dev, Game architect, Tech Lead, Game Dev
 
 ---
 
