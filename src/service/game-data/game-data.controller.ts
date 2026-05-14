@@ -321,8 +321,8 @@ export class GameDataController {
 
       await this.authService.handleSendEmailToUser({
           who: 'ADMIN',
-          title: `[Shop NPC] Admin ${data.admin} vừa ${actionLabel} item shop NPC`,
-          content: lines.join('</br>'),
+          title: `[NPC Shop] Thay Đổi Shop Item`,
+          content: lines.join('<br/>'),
       });
 
       await DiscordAlert.shopItemEvent({
