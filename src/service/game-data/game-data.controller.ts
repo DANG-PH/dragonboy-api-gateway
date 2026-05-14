@@ -250,20 +250,18 @@ export class GameDataController {
       // Luôn emit reload — server filter sẽ loại item chưa active nên an toàn
       this.gameClient.emit('game.reload_shop', { npcId: result.npc_base_id });
 
-      // Notification khi sửa item giới hạn
-      if (body.start_at && body.end_at) {
-          this.eventEmitter.emit('game.item-event-notification', {
-              action: 'SUA',
-              role: req.user.role,
-              admin: req.user.username,
-              adminId: req.user.userId,
-              itemId: result.id,
-              npcBaseId: result.npc_base_id,
-              startAt: body.start_at,
-              endAt: body.end_at,
-              extra: body,
-          });
-      }
+      // Notification khi sửa item 
+      this.eventEmitter.emit('game.item-event-notification', {
+          action: 'SUA',
+          role: req.user.role,
+          admin: req.user.username,
+          adminId: req.user.userId,
+          itemId: result.id,
+          npcBaseId: result.npc_base_id,
+          startAt: body.start_at,
+          endAt: body.end_at,
+          extra: body,
+      });
 
       return result;
   }
