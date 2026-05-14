@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Inject, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Roles } from 'src/security/decorators/role.decorator';
 import { Role } from 'src/enums/role.enum';
@@ -36,6 +36,9 @@ import {
 } from '../../../dto/game-data.dto';
 import { ClientProxy } from '@nestjs/microservices';
 import { ShopQueueService } from './queue/shop-queue.service';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { AuthService } from '../auth/auth.service';
+import { DiscordAlert } from 'src/shared/discord.alert';
 
 @ApiTags('Api Game Data')
 @Controller('game-data')
@@ -44,6 +47,8 @@ export class GameDataController {
     private readonly gameDataService: GameDataService,
     private readonly shopQueueService: ShopQueueService,
     @Inject(String(process.env.RABBIT_GAME_SERVICE)) private readonly gameClient: ClientProxy,
+    private eventEmitter: EventEmitter2,
+    private readonly authService: AuthService
   ) {}
 
   // ===== MAP BASE =====
@@ -182,26 +187,37 @@ export class GameDataController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({ summary: 'Thêm item vào shop NPC (ADMIN)(WEB)' })
   @ApiBody({ type: ThemShopItemRequestDto })
-  async themShopItem(@Body() body: ThemShopItemRequestDto): Promise<NpcShopItemDto> {
+  async themShopItem(@Body() body: ThemShopItemRequestDto, @Req() req: any): Promise<NpcShopItemDto> {
       const result = await this.gameDataService.handleThemShopItem(body);
       if (result == null) return result;
 
       const now = Date.now();
       const startAt = body.start_at;
 
-      // Chỉ set job cho start at (đây là lợi thế của pattern hybrid 1+3, xem trong docs ở api gateway)
-      // Vì end at thì client tự filter khi hết hạn và server author nên server chỉ cần trigger N job cho start chứ k cần N job cho end như pattern 3 nữa, và cũng tối ưu cho pattern 1 hơn về notification và setup tương lai, vì pattern 1 k có điểm hook point, user phải out ra vào lại game,...
+      // Chỉ set job cho start at (pattern hybrid 1+3, xem docs ở api gateway)
       if (startAt && startAt > now) {
-          // Item chưa đến giờ → schedule job tại start_at
-          // KHÔNG emit reload ngay vì client fetch về sẽ bị filter loại ra
           await this.shopQueueService.scheduleStartItem(
               result.id,
               result.npc_base_id,
               startAt,
           );
       } else {
-          // Item active ngay (start_at đã qua hoặc null) → emit reload
           this.gameClient.emit('game.reload_shop', { npcId: result.npc_base_id });
+      }
+
+      // Chỉ notification khi thêm item giới hạn
+      if (body.start_at && body.end_at) {
+          this.eventEmitter.emit('game.item-event-notification', {
+              action: 'THEM',
+              role: req.user.role,
+              admin: req.user.username,
+              adminId: req.user.userId,
+              itemId: result.id,
+              npcBaseId: result.npc_base_id,
+              startAt: body.start_at,
+              endAt: body.end_at,
+              extra: body,
+          });
       }
 
       return result;
@@ -213,17 +229,16 @@ export class GameDataController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({ summary: 'Sửa item trong shop NPC (ADMIN)(WEB)' })
   @ApiBody({ type: SuaShopItemRequestDto })
-  async suaShopItem(@Body() body: SuaShopItemRequestDto): Promise<NpcShopItemDto> {
+  async suaShopItem(@Body() body: SuaShopItemRequestDto, @Req() req: any): Promise<NpcShopItemDto> {
       const result = await this.gameDataService.handleSuaShopItem(body);
       if (result == null) return result;
 
       const now = Date.now();
       const startAt = body.start_at;
 
-      // Luôn cancel job cũ (phòng trường hợp admin sửa start_at hoặc bỏ start_at)
+      // Luôn cancel job cũ (phòng admin sửa hoặc bỏ start_at)
       await this.shopQueueService.removeStartJob(result.id);
 
-      // Nếu start_at mới còn trong tương lai → schedule job mới
       if (startAt && startAt > now) {
           await this.shopQueueService.scheduleStartItem(
               result.id,
@@ -232,9 +247,23 @@ export class GameDataController {
           );
       }
 
-      // Luôn emit reload — admin sửa item đang active (đổi giá, đổi tab...)
-      // → client cần biết để refresh. Nếu item chưa đến giờ, server filter sẽ loại ra → an toàn.
+      // Luôn emit reload — server filter sẽ loại item chưa active nên an toàn
       this.gameClient.emit('game.reload_shop', { npcId: result.npc_base_id });
+
+      // Notification khi sửa item giới hạn
+      if (body.start_at && body.end_at) {
+          this.eventEmitter.emit('game.item-event-notification', {
+              action: 'SUA',
+              role: req.user.role,
+              admin: req.user.username,
+              adminId: req.user.userId,
+              itemId: result.id,
+              npcBaseId: result.npc_base_id,
+              startAt: body.start_at,
+              endAt: body.end_at,
+              extra: body,
+          });
+      }
 
       return result;
   }
@@ -245,15 +274,68 @@ export class GameDataController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({ summary: 'Xóa item khỏi shop NPC (ADMIN)(WEB)' })
   @ApiQuery({ name: 'id', type: Number })
-  async xoaShopItem(@Query() query: XoaShopItemRequestDto): Promise<void> {
+  async xoaShopItem(@Query() query: XoaShopItemRequestDto, @Req() req: any): Promise<void> {
       const result = await this.gameDataService.handleXoaShopItem(query);
       if (result == null) return;
 
-      // Hủy job pending (nếu item bị xóa khi đang chờ start_at)
+      // Hủy job pending (item bị xóa khi đang chờ start_at)
       await this.shopQueueService.removeStartJob(query.id);
 
       // Emit reload để client xóa item khỏi UI
       this.gameClient.emit('game.reload_shop', { npcId: result.npcId });
+
+      // Luôn notification khi admin xóa — hành động phá hủy cần audit log
+      this.eventEmitter.emit('game.item-event-notification', {
+          action: 'XOA',
+          role: req.user.role,
+          admin: req.user.username,
+          adminId: req.user.userId,
+          itemId: query.id,
+          npcBaseId: result.npcId,
+      });
+  }
+
+  @OnEvent('game.item-event-notification')
+  async handleNotification(data: {
+      action: 'THEM' | 'SUA' | 'XOA';
+      role: string;
+      admin: string;
+      adminId: string | number;
+      itemId?: number;
+      npcBaseId?: number;
+      startAt?: number | null;
+      endAt?: number | null;
+      extra?: Record<string, any>;
+  }) {
+      const actionLabel = { THEM: 'thêm', SUA: 'sửa', XOA: 'xóa' }[data.action];
+
+      // Build content email — chỉ hiện start/end khi có
+      const lines = [
+          `Admin: <b>${data.admin}</b> (id: ${data.adminId}, role: ${data.role})`,
+          `Hành động: <b>${actionLabel.toUpperCase()}</b>`,
+          `Item ID: ${data.itemId ?? '—'}`,
+          `NPC Base: ${data.npcBaseId ?? '—'}`,
+      ];
+      if (data.startAt) lines.push(`Start: ${new Date(data.startAt).toLocaleString('vi-VN')}`);
+      if (data.endAt)   lines.push(`End: ${new Date(data.endAt).toLocaleString('vi-VN')}`);
+
+      await this.authService.handleSendEmailToUser({
+          who: 'ADMIN',
+          title: `[Shop NPC] Admin ${data.admin} vừa ${actionLabel} item shop NPC`,
+          content: lines.join('</br>'),
+      });
+
+      await DiscordAlert.shopItemEvent({
+          action: data.action,
+          admin: data.admin,
+          adminId: data.adminId,
+          role: data.role,
+          itemId: data.itemId,
+          npcBaseId: data.npcBaseId,
+          startAt: data.startAt,
+          endAt: data.endAt,
+          extra: data.extra,
+      });
   }
 
   // ===== ITEM BASE =====

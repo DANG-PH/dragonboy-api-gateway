@@ -10,6 +10,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { ShopQueueService } from './queue/shop-queue.service';
 import { ShopStartProcessor } from './queue/shop-start.processor';
 import { SHOP_START_QUEUE } from './queue/queue.constants';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { SHOP_START_QUEUE } from './queue/queue.constants';
       },
     }),
     BullModule.registerQueue({ name: SHOP_START_QUEUE }),
+    AuthModule,
   ],
   controllers: [GameDataController],
   providers: [JwtStrategy,RolesGuard, GameDataService, ShopQueueService, ShopStartProcessor],

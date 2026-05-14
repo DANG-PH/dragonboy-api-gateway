@@ -24,5 +24,10 @@ export class ShopStartProcessor extends WorkerHost {
 
         // 2. Emit cho client reload shop
         this.gameClient.emit('game.reload_shop', { npcId });
+
+        // 3. TODO: Alert cho admin & user
+        // Alert Discord/Email/Telegram cho admin
+        // Alert Realtime cho user đang chơi game
+        // Alert tới mail các user
     }
 }
