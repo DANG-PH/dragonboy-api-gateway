@@ -387,4 +387,29 @@ export class PlayerManagerController {
       }
     }
   }
+
+  // @Cron('30 3 * * *', {
+  //   timeZone: 'Asia/Ho_Chi_Minh',
+  // })
+  // async baoTriHangNgay() {
+  //   // Để xem tại sao xử lí như này => coi file redlock.md
+  //   let lock: RLock | null = null;
+  //   try {
+  //     lock = await this.redlock.acquire(['lock:cron:baoTriHangNgay'], 60_000);
+  //     // Alert cho all user trong game là game sắp bảo trì sau 30p
+  //     this.gameClient.emit('game.notification', { tinNhan: "Game sẽ được bảo trì sau 30 phút nữa" });
+  //     // Set bullmq 30p sau bảo trì (k dùng 2 cron vì chưa chắc 2 cron đều xảy ra, case này cần phụ thuộc nhau)
+  //     // Mở khóa bảo trì cũng vậy
+  //   } catch (err) {
+  //     if (err instanceof ExecutionError || err instanceof ResourceLockedError) {
+  //       console.warn('Cron job bị lock bởi instance khác, bỏ qua');
+  //       return;
+  //     }
+  //     throw err;
+  //   } finally {
+  //     if (lock) {
+  //       await lock.release();
+  //     }
+  //   }
+  // }
 }
