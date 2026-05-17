@@ -7,6 +7,7 @@ import { RolesGuard } from 'src/security/guard/role.guard';
 import { GameDataController } from './game-data.controller';
 import { GameDataService } from './game-data.service';
 import { AuthModule } from '../auth/auth.module';
+import { ShopModule } from '../queue/modules/shop/shop.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { AuthModule } from '../auth/auth.module';
       },
     ]),
     AuthModule,
+    ShopModule
   ],
   controllers: [GameDataController],
   providers: [JwtStrategy,RolesGuard, GameDataService],
