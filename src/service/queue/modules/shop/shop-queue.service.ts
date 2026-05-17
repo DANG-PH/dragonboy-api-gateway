@@ -2,7 +2,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ClientProxy } from '@nestjs/microservices';
-import { SHOP_START_QUEUE } from './queue.constants';
+import { SHOP_START_QUEUE } from '../../queue.constants';
 
 export interface ShopStartJobData {
   itemId: number;

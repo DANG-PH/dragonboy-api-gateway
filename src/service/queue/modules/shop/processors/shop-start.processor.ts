@@ -3,8 +3,8 @@ import { Inject, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { Job } from 'bullmq';
 import Redis from 'ioredis';
-import { SHOP_START_QUEUE } from './queue.constants';
-import { ShopStartJobData } from './shop-queue.service';
+import { SHOP_START_QUEUE } from '../../../queue.constants';
+import { ShopStartJobData } from '../shop-queue.service';
 
 @Processor(SHOP_START_QUEUE)
 export class ShopStartProcessor extends WorkerHost {

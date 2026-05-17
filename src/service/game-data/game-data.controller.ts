@@ -35,7 +35,7 @@ import {
   ItemBaseDto,
 } from '../../../dto/game-data.dto';
 import { ClientProxy } from '@nestjs/microservices';
-import { ShopQueueService } from './queue/shop-queue.service';
+import { ShopQueueService } from '../queue/modules/shop/shop-queue.service';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { AuthService } from '../auth/auth.service';
 import { DiscordAlert } from 'src/shared/discord.alert';

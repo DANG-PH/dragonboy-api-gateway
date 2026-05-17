@@ -6,10 +6,6 @@ import { JwtStrategy } from 'src/security/JWT/jwt.strategy';
 import { RolesGuard } from 'src/security/guard/role.guard';
 import { GameDataController } from './game-data.controller';
 import { GameDataService } from './game-data.service';
-import { BullModule } from '@nestjs/bullmq';
-import { ShopQueueService } from './queue/shop-queue.service';
-import { ShopStartProcessor } from './queue/shop-start.processor';
-import { SHOP_START_QUEUE } from './queue/queue.constants';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
@@ -41,16 +37,10 @@ import { AuthModule } from '../auth/auth.module';
           },
       },
     ]),
-    BullModule.forRoot({
-      connection: {
-        url: process.env.REDIS_URL,
-      },
-    }),
-    BullModule.registerQueue({ name: SHOP_START_QUEUE }),
     AuthModule,
   ],
   controllers: [GameDataController],
-  providers: [JwtStrategy,RolesGuard, GameDataService, ShopQueueService, ShopStartProcessor],
+  providers: [JwtStrategy,RolesGuard, GameDataService],
   exports: [GameDataService]
 })
 export class GameDataModule {}

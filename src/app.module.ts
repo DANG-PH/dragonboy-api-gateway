@@ -31,6 +31,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { GameDataModule } from './service/game-data/game-data.module';
 import { JwtDecodeMiddleware } from './middleware/jwt-decode.middleware';
+import { QueueModule } from './service/queue/queue.module';
+import { ShopModule } from './service/queue/modules/shop/shop.module';
 
 @Module({
   imports: [
@@ -60,6 +62,8 @@ import { JwtDecodeMiddleware } from './middleware/jwt-decode.middleware';
     OpenaiModule,
     GameModule,
     GameDataModule,
+    QueueModule,
+    ShopModule,
     EventEmitterModule.forRoot(), 
   ],
   controllers: [AppController],

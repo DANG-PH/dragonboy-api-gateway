@@ -399,7 +399,7 @@ export class PlayerManagerController {
   //     // Alert cho all user trong game là game sắp bảo trì sau 30p
   //     this.gameClient.emit('game.notification', { tinNhan: "Game sẽ được bảo trì sau 30 phút nữa" });
   //     // Set bullmq 30p sau bảo trì (k dùng 2 cron vì chưa chắc 2 cron đều xảy ra, case này cần phụ thuộc nhau)
-  //     // Mở khóa bảo trì cũng vậy
+  //     // Mở khóa bảo trì cũng vậy ( cũng set bullmq khi bảo trì thành công sau 1h bullmq tự mở server - xóa key redis) hoặc ở bước bullmq 4h set luôn đang bảo trì key 1h, hết key là tự hết bảo trì, middleware check trên redis
   //   } catch (err) {
   //     if (err instanceof ExecutionError || err instanceof ResourceLockedError) {
   //       console.warn('Cron job bị lock bởi instance khác, bỏ qua');
