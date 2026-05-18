@@ -188,14 +188,14 @@ export class GameDataService {
     const hash = crypto.createHash('md5').update(file.buffer).digest('hex');
 
     // 2. Upload lên R2
-    // Ví dụ: "music/d41d8cd98f00b204e9800998ecf8427e.mp3"
+    // Ví dụ: "d41d8cd98f00b204e9800998ecf8427e.mp3"
     //
     // Tại sao dùng hash làm tên file?
     // - Tránh trùng tên: 2 admin upload file khác nhau cùng tên "song.mp3" sẽ không đè nhau
     // - Cache busting: file mới sẽ có URL mới
     // - Idempotent: cùng 1 file upload 2 lần thì ghi đè vào cùng 1 key (không tốn dung lượng)
     const ext = (file.originalname.split('.').pop() ?? 'mp3').toLowerCase();
-    const key = `music/${hash}.${ext}`;
+    const key = `${hash}.${ext}`;
 
     await this.s3.send(
       new PutObjectCommand({
