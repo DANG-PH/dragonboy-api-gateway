@@ -205,6 +205,38 @@ export interface XoaItemBaseRequest {
   id: number;
 }
 
+/** ===== MUSIC ===== */
+export interface Music {
+  id: number;
+  name: string;
+  file_url: string;
+  hash: string;
+  /** ACTIVE, INACTIVE */
+  status: string;
+}
+
+export interface GetAllMusicResponse {
+  musics: Music[];
+}
+
+export interface ThemMusicRequest {
+  name: string;
+  file_url: string;
+  hash: string;
+}
+
+export interface SuaMusicRequest {
+  id: number;
+  name?: string | undefined;
+  file_url?: string | undefined;
+  hash?: string | undefined;
+  status?: string | undefined;
+}
+
+export interface XoaMusicRequest {
+  id: number;
+}
+
 export const GAME_DATA_PACKAGE_NAME = "game_data";
 
 /** ===== SERVICE DEFINITION ===== */
@@ -259,6 +291,16 @@ export interface GameDataServiceClient {
   suaShopItem(request: SuaShopItemRequest, metadata?: Metadata): Observable<NpcShopItem>;
 
   xoaShopItem(request: XoaShopItemRequest, metadata?: Metadata): Observable<XoaShopItemResponse>;
+
+  /** Music */
+
+  getAllMusic(request: Empty, metadata?: Metadata): Observable<GetAllMusicResponse>;
+
+  themMusic(request: ThemMusicRequest, metadata?: Metadata): Observable<Music>;
+
+  suaMusic(request: SuaMusicRequest, metadata?: Metadata): Observable<Music>;
+
+  xoaMusic(request: XoaMusicRequest, metadata?: Metadata): Observable<Empty>;
 }
 
 /** ===== SERVICE DEFINITION ===== */
@@ -313,6 +355,16 @@ export interface GameDataServiceController {
   suaShopItem(request: SuaShopItemRequest, metadata?: Metadata): Observable<NpcShopItem>;
 
   xoaShopItem(request: XoaShopItemRequest, metadata?: Metadata): Observable<XoaShopItemResponse>;
+
+  /** Music */
+
+  getAllMusic(request: Empty, metadata?: Metadata): Observable<GetAllMusicResponse>;
+
+  themMusic(request: ThemMusicRequest, metadata?: Metadata): Observable<Music>;
+
+  suaMusic(request: SuaMusicRequest, metadata?: Metadata): Observable<Music>;
+
+  xoaMusic(request: XoaMusicRequest, metadata?: Metadata): Observable<Empty>;
 }
 
 export function GameDataServiceControllerMethods() {
@@ -338,6 +390,10 @@ export function GameDataServiceControllerMethods() {
       "themShopItem",
       "suaShopItem",
       "xoaShopItem",
+      "getAllMusic",
+      "themMusic",
+      "suaMusic",
+      "xoaMusic",
     ];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);

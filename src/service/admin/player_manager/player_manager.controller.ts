@@ -390,7 +390,7 @@ export class PlayerManagerController {
     }
   }
 
-  @Cron('15 11 * * *', {
+  @Cron('30 3 * * *', {
     timeZone: 'Asia/Ho_Chi_Minh',
   })
   async baoTriHangNgay() {

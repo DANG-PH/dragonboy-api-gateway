@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, Inject, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Inject, Patch, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Roles } from 'src/security/decorators/role.decorator';
 import { Role } from 'src/enums/role.enum';
 import { JwtAuthGuard } from 'src/security/JWT/jwt-auth.guard';
 import { RolesGuard } from 'src/security/guard/role.guard';
 import { GameDataService } from './game-data.service';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   GetAllMapResponseDto,
   ThemMapRequestDto,
@@ -33,6 +34,11 @@ import {
   SuaItemBaseRequestDto,
   XoaItemBaseRequestDto,
   ItemBaseDto,
+  GetAllMusicResponseDto,
+  ThemMusicRequestDto,
+  MusicDto,
+  SuaMusicRequestDto,
+  XoaMusicRequestDto,
 } from '../../../dto/game-data.dto';
 import { ClientProxy } from '@nestjs/microservices';
 import { ShopQueueService } from '../queue/modules/shop/shop-queue.service';
@@ -375,4 +381,59 @@ export class GameDataController {
   // async xoaItemBase(@Query() query: XoaItemBaseRequestDto): Promise<void> {
   //   await this.gameDataService.handleXoaItemBase(query);
   // }
+
+  // ===== MUSIC =====
+
+  @Get('music')
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Lấy tất cả nhạc (ADMIN)(WEB)' })
+  async getAllMusic(): Promise<GetAllMusicResponseDto> {
+    return this.gameDataService.handleGetAllMusic();
+  }
+
+  @Post('music')
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Upload + thêm nhạc mới (ADMIN)(WEB)' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['name', 'file'],
+      properties: {
+        name: { type: 'string', example: 'Khẩu Thị Tâm Phi' },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @UseInterceptors(FileInterceptor('file'))
+  async themMusic(
+    @Body() body: ThemMusicRequestDto,
+    @UploadedFile() file: any,
+  ): Promise<MusicDto> {
+    return this.gameDataService.handleThemMusic(body, file);
+  }
+
+  @Patch('music')
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Sửa metadata nhạc — tên/status (ADMIN)(WEB)' })
+  @ApiBody({ type: SuaMusicRequestDto })
+  async suaMusic(@Body() body: SuaMusicRequestDto): Promise<MusicDto> {
+    return this.gameDataService.handleSuaMusic(body);
+  }
+
+  @Delete('music')
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Xóa nhạc — soft delete → INACTIVE (ADMIN)(WEB)' })
+  @ApiQuery({ name: 'id', type: Number })
+  async xoaMusic(@Query() query: XoaMusicRequestDto): Promise<void> {
+    await this.gameDataService.handleXoaMusic(query);
+  }
 }

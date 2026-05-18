@@ -441,3 +441,73 @@ export class XoaItemBaseRequestDto {
   @IsInt()
   id: number;
 }
+
+// ===== MUSIC =====
+
+export enum MusicStatus {
+  ACTIVE   = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+}
+
+export class MusicDto {
+  @ApiProperty({ example: 1 })
+  @IsInt()
+  id: number;
+
+  @ApiProperty({ example: 'Khẩu Thị Tâm Phi' })
+  @IsString()
+  name: string;
+
+  @ApiProperty({ example: 'https://cdn.yourdomain.com/music/abc123.mp3' })
+  @IsString()
+  file_url: string;
+
+  @ApiProperty({ example: 'd41d8cd98f00b204e9800998ecf8427e' })
+  @IsString()
+  hash: string;
+
+  @ApiProperty({ example: MusicStatus.ACTIVE, enum: MusicStatus })
+  @IsEnum(MusicStatus)
+  status: string;
+}
+
+export class GetAllMusicResponseDto {
+  @ApiProperty({ type: () => [MusicDto] })
+  musics: MusicDto[];
+}
+
+export class ThemMusicRequestDto {
+  @ApiProperty({
+    example: 'Khẩu Thị Tâm Phi',
+    description: 'Tên hiển thị của bài nhạc',
+  })
+  @IsString()
+  name: string;
+}
+
+export class SuaMusicRequestDto {
+  @ApiProperty({ example: 1, description: 'ID của music cần sửa' })
+  @IsInt()
+  id: number;
+
+  @ApiPropertyOptional({ example: 'Tên Mới' })
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({
+    example: MusicStatus.INACTIVE,
+    enum: MusicStatus,
+    description: 'Toggle ẩn/hiện bài nhạc',
+  })
+  @IsOptional()
+  @IsEnum(MusicStatus)
+  status?: string;
+}
+
+export class XoaMusicRequestDto {
+  @ApiProperty({ example: 1, description: 'ID của music cần xóa (soft delete → INACTIVE)' })
+  @Type(() => Number)
+  @IsInt()
+  id: number;
+}

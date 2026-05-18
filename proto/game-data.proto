@@ -33,6 +33,12 @@ service GameDataService {
   rpc ThemShopItem   (ThemShopItemRequest)   returns (NpcShopItem);
   rpc SuaShopItem    (SuaShopItemRequest)    returns (NpcShopItem);
   rpc XoaShopItem    (XoaShopItemRequest)    returns (XoaShopItemResponse);
+
+  // Music
+  rpc GetAllMusic (Empty) returns (GetAllMusicResponse);
+  rpc ThemMusic   (ThemMusicRequest) returns (Music);
+  rpc SuaMusic    (SuaMusicRequest)  returns (Music);
+  rpc XoaMusic    (XoaMusicRequest)  returns (Empty);
 }
 
 // ===== COMMON =====
@@ -215,5 +221,36 @@ message SuaItemBaseResponse {
 }
 
 message XoaItemBaseRequest {
+  int32 id = 1;
+}
+
+// ===== MUSIC =====
+message Music {
+  int32  id        = 1;
+  string name      = 2;
+  string file_url  = 3;
+  string hash      = 4;
+  string status    = 5; // ACTIVE, INACTIVE
+}
+
+message GetAllMusicResponse {
+  repeated Music musics = 1;
+}
+
+message ThemMusicRequest {
+  string name     = 1;
+  string file_url = 2;
+  string hash     = 3;
+}
+
+message SuaMusicRequest {
+  int32  id              = 1;
+  optional string name   = 2;
+  optional string file_url = 3;
+  optional string hash   = 4;
+  optional string status = 5;
+}
+
+message XoaMusicRequest {
   int32 id = 1;
 }
