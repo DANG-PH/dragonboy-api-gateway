@@ -385,9 +385,6 @@ export class GameDataController {
   // ===== MUSIC =====
 
   @Get('music')
-  @ApiBearerAuth()
-  @Roles(Role.ADMIN)
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({ summary: 'Lấy tất cả nhạc (ADMIN)(WEB)' })
   async getAllMusic(): Promise<GetAllMusicResponseDto> {
     return this.gameDataService.handleGetAllMusic();
