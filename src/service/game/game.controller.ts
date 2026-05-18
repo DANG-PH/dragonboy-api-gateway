@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { JwtAuthGuard } from 'src/security/JWT/jwt-auth.guard';
-import { Controller, Post, UseGuards, Req, Inject } from '@nestjs/common';
+import { Controller, Post, UseGuards, Req, Inject, HttpException, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager';
 import Redis from 'ioredis';
@@ -38,6 +38,18 @@ export class GameController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'User vào chơi game sau khi verifyOTP và ở màn hình menu' })
   async play(@Req() req: any) {
+    // Check bảo trì (fail past nhanh ở đây)
+    // Nếu k fail past nhanh ở đây thì logic security vẫn đúng
+    // Nhưng trải nghiệm người dùng tệ vì /play pass -> màn hình loading
+    // Chạy màn loading xong vào game mới connect ws xong -> mới đc emit để văng game ra -> ux tệ
+    const maintenanceInfo = await this.redis.get('maintenance:active');
+    if (maintenanceInfo) {
+        throw new HttpException(
+            "Server đang bảo trì, vui lòng thử lại sau",
+            HttpStatus.SERVICE_UNAVAILABLE,
+        );
+    }
+
     const { userId } = req.user;
     const gameSessionId = randomUUID();
 
