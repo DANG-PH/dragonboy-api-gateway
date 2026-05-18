@@ -9,6 +9,7 @@ import { DeTuModule } from 'src/service/detu/detu.module';
 import { PayModule } from 'src/service/pay/pay/pay.module';
 import { FinanceModule } from 'src/service/pay/finance/finance.module';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { MaintenanceModule } from 'src/service/queue/modules/maintenance/maintenance.module';
 // import { PlayerManagerService } from './player_manager.service';
 
 @Module({
@@ -24,7 +25,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
           },
       },
     ]),
-    AuthModule, UserModule, ItemModule, DeTuModule, PayModule, FinanceModule
+    AuthModule, UserModule, ItemModule, DeTuModule, PayModule, FinanceModule, MaintenanceModule
   ],
   controllers: [PlayerManagerController],
   providers: [

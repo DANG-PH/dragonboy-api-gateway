@@ -47,8 +47,6 @@ export class ShopQueueService {
         backoff: { type: 'exponential', delay: 5000 },
       },
     );
-
-    this.logger.log(`Scheduled start job for item ${itemId} (delay: ${delayMs}ms)`);
   }
 
   /**
@@ -59,7 +57,6 @@ export class ShopQueueService {
     const job = await this.shopStartQueue.getJob(jobId);
     if (job) {
       await job.remove();
-      this.logger.log(`Removed start job for item ${itemId}`);
     }
   }
 }

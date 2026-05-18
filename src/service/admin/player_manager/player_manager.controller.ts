@@ -29,6 +29,7 @@ import Redlock, { ResourceLockedError, ExecutionError, Lock as RLock } from 'red
 import Redis from 'ioredis';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ClientProxy } from '@nestjs/microservices';
+import { MaintenanceService } from 'src/service/queue/modules/maintenance/maintenanace.service';
 
 @Controller('player_manager')
 @ApiTags('Api Player Manager') 
@@ -46,6 +47,7 @@ export class PlayerManagerController {
     // private eventEmitter: EventEmitter2,
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
     @Inject(String(process.env.RABBIT_GAME_SERVICE)) private readonly gameClient: ClientProxy,
+    private readonly maintenanceService: MaintenanceService,
   ) {
     this.redlock = new Redlock([this.redis], { retryCount: 0 }); // 1 node redis
   }
@@ -388,28 +390,32 @@ export class PlayerManagerController {
     }
   }
 
-  // @Cron('30 3 * * *', {
-  //   timeZone: 'Asia/Ho_Chi_Minh',
-  // })
-  // async baoTriHangNgay() {
-  //   // Để xem tại sao xử lí như này => coi file redlock.md
-  //   let lock: RLock | null = null;
-  //   try {
-  //     lock = await this.redlock.acquire(['lock:cron:baoTriHangNgay'], 60_000);
-  //     // Alert cho all user trong game là game sắp bảo trì sau 30p
-  //     this.gameClient.emit('game.notification', { tinNhan: "Game sẽ được bảo trì sau 30 phút nữa" });
-  //     // Set bullmq 30p sau bảo trì (k dùng 2 cron vì chưa chắc 2 cron đều xảy ra, case này cần phụ thuộc nhau)
-  //     // Mở khóa bảo trì cũng vậy ( cũng set bullmq khi bảo trì thành công sau 1h bullmq tự mở server - xóa key redis) hoặc ở bước bullmq 4h set luôn đang bảo trì key 1h, hết key là tự hết bảo trì, middleware check trên redis
-  //   } catch (err) {
-  //     if (err instanceof ExecutionError || err instanceof ResourceLockedError) {
-  //       console.warn('Cron job bị lock bởi instance khác, bỏ qua');
-  //       return;
-  //     }
-  //     throw err;
-  //   } finally {
-  //     if (lock) {
-  //       await lock.release();
-  //     }
-  //   }
-  // }
+  @Cron('5 10 * * *', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+  })
+  async baoTriHangNgay() {
+    // Để xem tại sao xử lí như này => coi file redlock.md
+    let lock: RLock | null = null;
+    try {
+      lock = await this.redlock.acquire(['lock:cron:baoTriHangNgay'], 60_000);
+      // Alert cho all user trong game là game sắp bảo trì sau 30p
+      this.gameClient.emit('game.notification', { tinNhan: "Game sẽ được bảo trì sau 30 phút nữa" });
+      // Set bullmq 30p sau bảo trì (k dùng 2 cron vì chưa chắc 2 cron đều xảy ra, case này cần phụ thuộc nhau)
+      // Mở khóa bảo trì cũng vậy ( cũng set bullmq khi bảo trì thành công sau 1h bullmq tự mở server - xóa key redis) hoặc ở bước bullmq 4h set luôn đang bảo trì key 1h, hết key là tự hết bảo trì, middleware check trên redis
+      const startAt = Date.now() + 30 * 60 * 1000
+      await this.maintenanceService.startMaintenance(
+          startAt,
+      );
+    } catch (err) {
+      if (err instanceof ExecutionError || err instanceof ResourceLockedError) {
+        console.warn('Cron job bị lock bởi instance khác, bỏ qua');
+        return;
+      }
+      throw err;
+    } finally {
+      if (lock) {
+        await lock.release();
+      }
+    }
+  }
 }
