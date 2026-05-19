@@ -86,9 +86,9 @@ export class PartnerController {
   }
 
   @Get('all-account-sell')
-  @ApiBearerAuth()
-  @Roles(Role.PARTNER, Role.ADMIN, Role.USER)
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  // @ApiBearerAuth()
+  // @Roles(Role.PARTNER, Role.ADMIN, Role.USER)
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'User Xem tất cả acc cần bán ( status: ACTIVE ) trong kho acc của hệ thống (ALL)(WEB) (ĐÃ DÙNG)' })
   async getAllAccountSell(@Query() query: PaginationRequestDto): Promise<ListAccountSellResponseDto> {
     return this.partnerService.handleGetAllActiveAccounts({

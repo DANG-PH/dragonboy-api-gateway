@@ -44,9 +44,9 @@ export class EditorController {
 
   // ====== GET ALL ======
   @Get('all-posts')
-  @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.EDITOR, Role.USER)
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  // @ApiBearerAuth()
+  // @Roles(Role.ADMIN, Role.EDITOR, Role.USER)
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Lấy danh sách tất cả bài viết (ALL)(WEB) (ĐÃ DÙNG)' })
   async getAllPosts(@Query() query: EmptyDto): Promise<ListPostResponseDto> {
     return this.editorService.handleGetAllPosts(query);
