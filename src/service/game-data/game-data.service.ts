@@ -41,6 +41,7 @@ import {
   Music,
   SuaMusicRequest,
   XoaMusicRequest,
+  MusicStatus,
 } from 'proto/game-data.pb';
 import { grpcCall } from 'src/helpers/grpc.helper';
 
@@ -196,20 +197,12 @@ export class GameDataService {
     // - Idempotent: cùng 1 file upload 2 lần thì ghi đè vào cùng 1 key (không tốn dung lượng)
     const ext = (file.originalname.split('.').pop() ?? 'mp3').toLowerCase();
     const key = `${hash}.${ext}`;
-
-    await this.s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.R2_BUCKET!,
-        Key: key,
-        Body: file.buffer,
-        ContentType: file.mimetype,
-      }),
-    );
-
     const file_url = `${process.env.R2_PUBLIC_DOMAIN}/${key}`;
 
-    // 3. Gọi gRPC ThemMusic
-    return grpcCall(
+    // 3. Insert DB với status PROCESSING (chưa upload xong file lên storage)
+    // Trả response cho admin ngay, không đợi upload Supabase xong
+    // → Admin tiết kiệm 2-3s waiting time
+    const music = await grpcCall(
       GameDataService.name,
       this.gameDataGrpcService.themMusic({
         name: body.name,
@@ -217,6 +210,52 @@ export class GameDataService {
         hash,
       }),
     );
+
+    // 4. Upload Supabase background, không await
+    // Khi xong sẽ update status → ACTIVE (hoặc FAILED nếu lỗi)
+    // Client game filter status=ACTIVE nên bài processing/failed không bị tải về
+    this.uploadVaUpdateStatus(key, file, music.id);
+
+    return music;
+  }
+
+  private uploadVaUpdateStatus(key: string, file: any, musicId: number): void {
+    // IIFE async — fire and forget, nhưng vẫn catch error tránh UnhandledPromiseRejection
+    (async () => {
+      try {
+        await this.s3.send(
+          new PutObjectCommand({
+            Bucket: process.env.R2_BUCKET!,
+            Key: key,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+          }),
+        );
+
+        await grpcCall(
+          GameDataService.name,
+          this.gameDataGrpcService.suaMusic({
+            id: musicId,
+            status: MusicStatus.ACTIVE,
+          }),
+        );
+
+        this.logger.log(`Upload thành công music ${musicId}`);
+      } catch (err) {
+        this.logger.error(`Upload fail music ${musicId}`, err);
+
+        // Update status FAILED để admin biết bài này upload lỗi
+        await grpcCall(
+          GameDataService.name,
+          this.gameDataGrpcService.suaMusic({
+            id: musicId,
+            status: MusicStatus.FAILED,
+          }),
+        ).catch((e) =>
+          this.logger.error('Update FAILED status fail', e),
+        );
+      }
+    })();
   }
 
   async handleSuaMusic(req: SuaMusicRequest): Promise<Music> {
