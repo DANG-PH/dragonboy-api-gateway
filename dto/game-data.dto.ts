@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { MusicStatus, NpcSpawn } from 'proto/game-data.pb';
 
 export enum LoaiNPC {
@@ -480,6 +480,13 @@ export class ThemMusicRequestDto {
   name: string;
 }
 
+const VALID_MUSIC_STATUSES = [
+  MusicStatus.PROCESSING,
+  MusicStatus.ACTIVE,
+  MusicStatus.INACTIVE,
+  MusicStatus.FAILED,
+];
+
 export class SuaMusicRequestDto {
   @ApiProperty({ example: 1, description: 'ID của music cần sửa' })
   @IsInt()
@@ -492,11 +499,11 @@ export class SuaMusicRequestDto {
 
   @ApiPropertyOptional({
     example: MusicStatus.INACTIVE,
-    enum: MusicStatus,
-    description: 'Toggle ẩn/hiện bài nhạc',
+    enum: VALID_MUSIC_STATUSES,
+    description: 'Status: 1=PROCESSING, 2=ACTIVE, 3=INACTIVE, 4=FAILED',
   })
   @IsOptional()
-  @IsEnum(MusicStatus)
+  @IsIn(VALID_MUSIC_STATUSES)
   status?: number;
 }
 
