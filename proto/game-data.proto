@@ -225,12 +225,20 @@ message XoaItemBaseRequest {
 }
 
 // ===== MUSIC =====
+enum MusicStatus {
+  MUSIC_STATUS_UNSPECIFIED = 0;
+  PROCESSING               = 1;
+  ACTIVE                   = 2;
+  INACTIVE                 = 3;
+  FAILED                   = 4;
+}
+
 message Music {
   int32  id        = 1;
   string name      = 2;
   string file_url  = 3;
   string hash      = 4;
-  string status    = 5; // ACTIVE, INACTIVE
+  int32 status    = 5; // ACTIVE, INACTIVE
 }
 
 message GetAllMusicResponse {
@@ -248,7 +256,7 @@ message SuaMusicRequest {
   optional string name   = 2;
   optional string file_url = 3;
   optional string hash   = 4;
-  optional string status = 5;
+  optional int32 status = 5;
 }
 
 message XoaMusicRequest {

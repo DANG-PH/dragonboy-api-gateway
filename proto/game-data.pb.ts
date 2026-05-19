@@ -11,6 +11,16 @@ import { Observable } from "rxjs";
 
 export const protobufPackage = "game_data";
 
+/** ===== MUSIC ===== */
+export enum MusicStatus {
+  MUSIC_STATUS_UNSPECIFIED = 0,
+  PROCESSING = 1,
+  ACTIVE = 2,
+  INACTIVE = 3,
+  FAILED = 4,
+  UNRECOGNIZED = -1,
+}
+
 /** ===== COMMON ===== */
 export interface Empty {
 }
@@ -205,14 +215,13 @@ export interface XoaItemBaseRequest {
   id: number;
 }
 
-/** ===== MUSIC ===== */
 export interface Music {
   id: number;
   name: string;
   file_url: string;
   hash: string;
   /** ACTIVE, INACTIVE */
-  status: string;
+  status: number;
 }
 
 export interface GetAllMusicResponse {
@@ -230,7 +239,7 @@ export interface SuaMusicRequest {
   name?: string | undefined;
   file_url?: string | undefined;
   hash?: string | undefined;
-  status?: string | undefined;
+  status?: number | undefined;
 }
 
 export interface XoaMusicRequest {

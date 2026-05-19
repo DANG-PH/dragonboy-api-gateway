@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
-import { NpcSpawn } from 'proto/game-data.pb';
+import { MusicStatus, NpcSpawn } from 'proto/game-data.pb';
 
 export enum LoaiNPC {
   NGUOI   = 'NGUOI',
@@ -444,11 +444,6 @@ export class XoaItemBaseRequestDto {
 
 // ===== MUSIC =====
 
-export enum MusicStatus {
-  ACTIVE   = 'ACTIVE',
-  INACTIVE = 'INACTIVE',
-}
-
 export class MusicDto {
   @ApiProperty({ example: 1 })
   @IsInt()
@@ -468,7 +463,7 @@ export class MusicDto {
 
   @ApiProperty({ example: MusicStatus.ACTIVE, enum: MusicStatus })
   @IsEnum(MusicStatus)
-  status: string;
+  status: number;
 }
 
 export class GetAllMusicResponseDto {
@@ -502,7 +497,7 @@ export class SuaMusicRequestDto {
   })
   @IsOptional()
   @IsEnum(MusicStatus)
-  status?: string;
+  status?: number;
 }
 
 export class XoaMusicRequestDto {
