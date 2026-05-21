@@ -38,6 +38,12 @@ export class MaintenanceProcessor extends WorkerHost {
     // 2. Emit logout - await để retry hoạt động đúng (để bullmq retry nếu có lỗi, k fire and forget)
     await firstValueFrom(this.gameClient.emit('game.logout_all', {}));
 
-    // 3. TODO: Alert
+    // 3. Invalid cache, Daily reset (Chưa có nhưng có thể làm sau/hoặc item per-user/per-day)
+    
+    // 4. Move logic alert doanh thu từ cron 12h vào đây (4h sáng)
+
+    // 5. Lấy data setup từ queue task redis như đổi map, đổi vị trí npc, ...
+
+    // 6. TODO: Alert
   }
 }
