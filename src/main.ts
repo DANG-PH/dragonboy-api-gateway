@@ -17,6 +17,7 @@ import { GlobalExceptionFilter } from './filters/http-exception.filter';
 import { initCbRedisSync } from './helpers/cb-redis-sync';
 import { getBreakerFor } from './helpers/circuit-breaker.registry';
 import { RedisIoAdapter } from './redis-io.adapter';
+import { MetricsModule } from './metrics.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -108,6 +109,9 @@ async function bootstrap() {
   // Nếu gọi trước listen(): getBreakerFor() có thể được gọi
   // khi registry chưa sẵn sàng.
   initCbRedisSync(getBreakerFor);
+
+  const metricsApp = await NestFactory.create(MetricsModule);
+  await metricsApp.listen(process.env.METRICS_PORT, '0.0.0.0'); 
 }
 bootstrap();
 
