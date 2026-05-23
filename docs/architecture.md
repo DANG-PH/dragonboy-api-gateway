@@ -2,29 +2,6 @@
 
 ---
 
-## Thông tin tài liệu
-
-| Trường | Nội dung |
-|--------|----------|
-| **Tên dự án** | Dragon Boy — Hệ thống Game Online (Microservices) |
-| **Loại tài liệu** | Business Analysis Document (BA) / Software Requirements & Architecture |
-| **Phiên bản** | 1.0 |
-| **Người thực hiện** | DANG-PH |
-| **Vai trò** | Business Analyst / System Designer |
-| **Ngày tạo** | 2026-05-23 |
-| **Trạng thái** | Draft for review |
-
-### Lịch sử phiên bản
-
-| Phiên bản | Ngày | Người sửa | Mô tả thay đổi |
-|-----------|------|-----------|----------------|
-| 0.1 | 2026-05-10 | DANG-PH | Khởi tạo: kiến trúc service, ERD, sequence diagram |
-| 0.5 | 2026-05-18 | DANG-PH | Bổ sung use case diagram, data flow domain view |
-| 1.0 | 2026-05-23 | DANG-PH | Hoàn thiện tài liệu BA: actor, use case spec, business rules, NFR, glossary, module nhạc nền runtime (entity Music) |
-| 2.0 | 2026-05-23 | DANG-PH | Bổ sung: luồng nạp tiền (VietQR/PayOS webhook), ma trận phân quyền 7 role (RBAC), bảng tech stack đầy đủ, observability & alerting, circuit breaker, RAG, phụ lục API |
-
----
-
 ## Mục lục
 
 1. [Giới thiệu](#1-giới-thiệu)
