@@ -36,7 +36,8 @@
 14. [Sequence Diagrams](#14-sequence-diagrams)
 15. [Phụ lục: Danh mục API](#15-phụ-lục-danh-mục-api)
 16. [Cron & Scheduled Jobs](#16-cron--scheduled-jobs)
-17. [Thuật ngữ (Glossary)](#17-thuật-ngữ)
+17. [Triển khai & Hạ tầng (Deployment)](#17-triển-khai--hạ-tầng)
+18. [Thuật ngữ (Glossary)](#18-thuật-ngữ)
 
 ---
 
@@ -510,6 +511,11 @@ Các quy tắc nghiệp vụ được trích xuất và tổng hợp từ thiế
 | **OAuth** | Google API | Đăng nhập bằng Google |
 | **Email** | SMTP / mail service | Gửi OTP, thông báo từ PLAYER_MANAGER/ADMIN |
 | **AI / RAG** | OpenAI (qua `/ai/ask`) | Hỏi đáp tài liệu dự án bằng Retrieval-Augmented Generation |
+| **Tracing** | Jaeger (OpenTelemetry) | Distributed tracing — lần vết request xuyên nhiều service |
+| **Backup** | rclone → Google Drive | Sao lưu DB định kỳ lên cloud |
+| **CI/CD** | GitHub Actions (dispatch trung tâm) | Tự động build/deploy, health check, rollback, báo Discord |
+| **Process manager** | PM2 (cluster `-i max`) | Chạy & giám sát service Node/Go, auto-restart, reload không downtime |
+| **Container** | Docker Compose | Đóng gói toàn bộ hạ tầng VPS1 (DB, broker, observability) |
 
 ---
 
@@ -517,7 +523,7 @@ Các quy tắc nghiệp vụ được trích xuất và tổng hợp từ thiế
 
 ### 9.1. Giám sát (Monitoring)
 
-Hệ thống dùng **Prometheus** thu thập metric và **Grafana** trực quan hóa. Hai endpoint sức khỏe phục vụ CI/CD và giám sát:
+Hệ thống dùng **Prometheus** thu thập metric và **Grafana** trực quan hóa. Ngoài ra, **Jaeger** (OpenTelemetry) cung cấp distributed tracing để lần vết một request đi qua nhiều service — hữu ích khi gỡ lỗi luồng saga hoặc gọi gRPC liên tầng. Hai endpoint sức khỏe phục vụ CI/CD và giám sát:
 
 | Endpoint | Mục đích |
 |----------|----------|
@@ -547,6 +553,8 @@ Hệ thống có nhiều tác vụ chạy theo lịch (event hằng ngày, báo 
 ## 10. Thiết kế kiến trúc
 
 ### 10.1. Service Topology
+
+> Đây là sơ đồ **logic** (quan hệ giữa các thành phần). Sơ đồ **triển khai vật lý** thực tế (phân bố 3 VPS, Cloudflare ở mức DNS/CDN proxy thay vì tunnel) xem chương 17.
 
 ```mermaid
 graph TB
@@ -2061,9 +2069,188 @@ Cơ chế "key tự hết hạn" giúp server **tự động thoát chế độ 
 
 ---
 
-## 17. Thuật ngữ
+## 17. Triển khai & Hạ tầng
 
-### 17.1. Thuật ngữ nghiệp vụ (tiếng Việt)
+Chương này mô tả cách hệ thống được triển khai thực tế: phân bố VPS, reverse proxy, container hạ tầng, quy trình CI/CD và sao lưu. Mọi credential (mật khẩu, token) trong tài liệu này được thay bằng placeholder `<...>`; giá trị thật nằm trong `.env`/cấu hình không công khai.
+
+### 17.1. Phân bố VPS
+
+Hệ thống chạy trên **ba VPS** với vai trò tách biệt:
+
+| VPS | Vai trò | Thành phần |
+|-----|---------|-----------|
+| **VPS1 — Nginx & Infra** | Edge + hạ tầng dữ liệu | Nginx (reverse proxy + stream), MySQL, PostgreSQL, MongoDB, Redis, RabbitMQ, NATS, Prometheus, Grafana, Jaeger — tất cả chạy bằng **Docker Compose** |
+| **VPS2 — App** | Application services | Toàn bộ NestJS service + Game Go, chạy bằng **PM2 cluster** (`-i max`). IP `103.116.52.222` |
+| **VPS3 — App** | Application services (nhân bản) | Bản sao của VPS2 để load-balance + dự phòng. IP `103.116.52.219` |
+
+Nginx ở VPS1 phân tải giữa VPS2 và VPS3 bằng thuật toán `least_conn`, với `max_fails=3 fail_timeout=30s` để tự loại node lỗi.
+
+> *Ghi chú về định tuyến hai domain:* Hệ thống dùng **hai domain với vai trò khác nhau** — `ngocrongdark.com` đi qua **Cloudflare** (DNS/CDN proxy, dùng cho web/API, nhận diện qua header `CF-Connecting-IP`), còn `dangpham.id.vn` trỏ **thẳng tới Nginx không qua Cloudflare** để tối ưu độ trễ cho **WebSocket game MMORPG** (tránh thêm một hop proxy, quan trọng với realtime 20Hz). Vì vậy các domain WebSocket (`ws.dangpham.id.vn`, `ws-go.dangpham.id.vn`) đều nằm trên domain kết nối trực tiếp. Container `cloudflared` tunnel không được dùng.
+
+### 17.2. Sơ đồ triển khai
+
+```mermaid
+graph TB
+    Client[Game Client / Web Client]
+    CF[Cloudflare DNS / CDN<br/>ngocrongdark.com]
+    Direct[DNS trực tiếp<br/>dangpham.id.vn]
+
+    Client -->|web / API| CF
+    Client -->|WebSocket game| Direct
+
+    subgraph VPS1["VPS1 — Nginx & Infra (Docker)"]
+        Nginx[Nginx<br/>reverse proxy + stream]
+        subgraph Infra["Containers"]
+            MySQL[(MySQL)]
+            PG[(PostgreSQL)]
+            Mongo[(MongoDB)]
+            Redis[(Redis)]
+            RMQ[RabbitMQ]
+            NATS[NATS]
+            Prom[Prometheus]
+            Graf[Grafana]
+            Jaeger[Jaeger]
+        end
+    end
+
+    subgraph VPS2["VPS2 — App (PM2 cluster) .222"]
+        App2[NestJS x11 + Game Go<br/>ports 3000..3010]
+    end
+
+    subgraph VPS3["VPS3 — App (PM2 cluster) .219"]
+        App3[NestJS x11 + Game Go<br/>ports 3000..3010]
+    end
+
+    CF -->|443| Nginx
+    Direct -->|443 low-latency| Nginx
+    Nginx -->|least_conn :3000| App2
+    Nginx -->|least_conn :3000| App3
+    Nginx -.WebSocket :3009.-> App2
+    Nginx -.WS Go :3010.-> App3
+
+    App2 -->|DB/queue| Nginx
+    App3 -->|DB/queue| Nginx
+    Nginx -.stream 33306/36379/35432.-> MySQL
+    Prom -->|scrape /metrics| App2
+    Prom -->|scrape /metrics| App3
+    Graf --> Prom
+
+    classDef infra fill:#a5b4fc,stroke:#3730a3,color:#1f2937
+    classDef db fill:#7dd3fc,stroke:#075985,color:#1f2937
+    classDef app fill:#d1d5db,stroke:#374151,color:#1f2937
+    classDef edge fill:#fbbf24,stroke:#92400e,color:#1f2937
+    class Nginx,CF,Direct edge
+    class MySQL,PG,Mongo,Redis db
+    class RMQ,NATS,Prom,Graf,Jaeger infra
+    class App2,App3 app
+```
+
+### 17.3. Reverse Proxy & Domain (Nginx)
+
+Nginx phục vụ nhiều subdomain, mỗi cái proxy tới một upstream hoặc tool nội bộ. Tất cả HTTP (80) redirect 301 sang HTTPS (443); mọi response gắn header HSTS và `X-Frame-Options`.
+
+| Domain | Proxy tới | Bảo vệ |
+|--------|-----------|--------|
+| `api.<domain>` | upstream `api_gateway` (VPS2/3 :3000) | `/` và `/api-docs` yêu cầu HTTP Basic Auth (htpasswd) |
+| `pay.<domain>` | upstream `pay_service` (:3005) | — |
+| `ws.<domain>` | upstream `game_service` (:3009), WebSocket | timeout 3600s, `proxy_buffering off` |
+| `ws-go.<domain>` | upstream `game_service_go` (:3010), WebSocket | keepalive 10000 |
+| `data.<domain>` | phpMyAdmin (:8081) | Basic Auth |
+| `postgres.<domain>` | pgAdmin (:5050) | Basic Auth |
+| `redis.<domain>` | RedisInsight (:5540) | Basic Auth |
+| `grafana.<domain>` | Grafana (:3001) | (đăng nhập Grafana) |
+| `download.<domain>` | redirect 302 → GitHub Releases | — |
+
+**HTTPS:** dùng một chứng chỉ Let's Encrypt (certbot standalone) phủ tất cả domain; auto-renew bằng cron 3h sáng kèm deploy-hook fix permission + reload nginx. Khuyến nghị đăng ký HSTS Preload sau khi SSL ổn định.
+
+**Truy cập DB từ xa (admin):** khối `stream` của Nginx mở các cổng phi tiêu chuẩn (`33306`→MySQL, `36379`→Redis, `35432`→Postgres, `35674`→RabbitMQ, `37017`→Mongo). Các cổng này chỉ mở cho IP VPS App qua UFW whitelist, không công khai.
+
+### 17.4. Container hạ tầng (VPS1)
+
+| Container | Cổng (bind 127.0.0.1) | Vai trò |
+|-----------|----------------------|---------|
+| `mysql-nro` (MySQL 8.0) | 3306 | DB nghiệp vụ chính; seed sẵn npc_base/map_base qua `configAdmin.sql` |
+| `postgres` (PG 15) | 5432 | admin_db (saga, outbox) |
+| `mongo` | 27017 | logger_db |
+| `redis` | 6379 | session, OTP, cache, BullMQ, pub-sub |
+| `rabbitmq` (management) | 5674 / 15674 | messaging liên-service |
+| `nats` | 4222 | pub-sub cho WS scaling |
+| `prometheus` | 9090 | scrape metric, lưu 30 ngày |
+| `grafana` | 3001 | dashboard |
+| `jaeger` | 16686 / 4317 / 4318 | distributed tracing (OpenTelemetry) |
+| phpMyAdmin / pgAdmin / mongo-express / RedisInsight | 8081 / 5050 / 8082 / 5540 | công cụ quản trị DB (sau Basic Auth) |
+
+Các DB chỉ bind `127.0.0.1`, không expose trực tiếp ra internet — truy cập từ app VPS đi qua khối `stream` của Nginx với whitelist IP.
+
+### 17.5. Bootstrap (cài đặt VPS mới)
+
+Hai script bootstrap idempotent (chạy lại nhiều lần an toàn):
+
+**`bootstrap-app.sh` (VPS App):** cài tool cơ bản, set timezone Asia/Ho_Chi_Minh, tạo swap 2GB (`vm.swappiness=10`), UFW (mở 22/80/443, whitelist IP Nginx → cổng nội bộ), Node.js 22 + PM2 + pm2-logrotate (50M, giữ 7 ngày), Go 1.22 + air, clone service từ GitHub, tạo `.env`, build NestJS (`npm run build`) và Go (`go build -o <name> ./cmd/api/main.go`), `pm2 start -i max`, `pm2 save` + startup, healthcheck.
+
+**`bootstrap.sh` (VPS Nginx/Infra):** cài tool, timezone (restart cron để nhận TZ mới), swap, Docker + Compose, UFW (whitelist IP app → cổng DB stream), tạo `.env` + htpasswd, certbot SSL cho toàn bộ domain + fix permission, cron auto-renew, `docker compose up -d`, verify `nginx -t` + container DB, cài rclone + cấu hình Google Drive, logrotate, đăng ký cron backup.
+
+> Một số chi tiết kỹ thuật đáng chú ý trong bootstrap: Go PATH đặt ở `/etc/profile.d/golang.sh` (không phải `~/.bashrc`) vì PM2 chạy non-interactive shell sẽ không đọc `.bashrc`; PM2 dùng `-i max` để chạy cluster mode tận dụng mọi CPU core.
+
+### 17.6. CI/CD (GitHub Actions)
+
+Quy trình triển khai tự động hoàn toàn chạy trên **GitHub Actions**, theo mô hình **dispatch trung tâm**. Khi một service repo push lên `master`, nó gửi `repository_dispatch` tới một repo điều phối trung tâm (`dragonboy-devops-service`); workflow ở repo này chạy trên GitHub runner và SSH vào VPS đích để triển khai. Không có "service" deploy nào chạy thường trú trên VPS — toàn bộ logic deploy nằm trong GitHub Actions.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as Developer
+    participant Repo as Service Repo
+    participant GHA as GitHub Actions (devops repo)
+    participant VPS as VPS đích (1 hoặc 2+3)
+    participant Discord as Discord
+
+    Dev->>Repo: git push master
+    Repo->>GHA: repository_dispatch (event: deploy)
+    Note over GHA: payload: service, dir, port, lang
+
+    GHA->>VPS: SSH + git pull
+    alt port = docker (nginx-service → VPS1)
+        GHA->>VPS: docker compose up -d --force-recreate nginx
+    else lang = go (→ VPS2+VPS3)
+        GHA->>VPS: go build → pm2 restart
+    else nestjs (→ VPS2+VPS3)
+        GHA->>VPS: npm install (nếu lock đổi) + build → pm2 reload
+    end
+
+    GHA->>VPS: Health check (curl /health, retry)
+    alt Health OK
+        GHA->>Discord: ✅ Deploy thành công
+    else Health fail
+        GHA->>VPS: git reset --hard <prev commit> + rebuild
+        GHA->>Discord: ❌ Deploy thất bại (đã rollback)
+    end
+```
+
+Đặc điểm chính: mỗi service repo khi push lên `master` kích hoạt một workflow nhỏ gửi `repository_dispatch` tới repo điều phối; GitHub runner SSH vào VPS đích (nginx-service → VPS1; service app → VPS2 + VPS3) để build và reload. Sau deploy có **health check** (`curl /health`, retry tối đa 12 lần); nếu fail thì **tự rollback** về commit trước (`git reset --hard <prev>` + rebuild) và báo **Discord** kết quả (kèm service, actor, commit, thời gian). Lệnh `pm2 reload` (NestJS) cho phép reload không downtime nhờ cluster mode. Workflow dùng `concurrency` để tránh hai lần deploy chồng nhau.
+
+### 17.7. Backup & Restore
+
+Dữ liệu được sao lưu định kỳ và đẩy lên **Google Drive** qua `rclone`:
+
+| Hạng mục | Chi tiết |
+|----------|----------|
+| Lịch chạy | Cron hằng ngày (mặc định ~4h sáng) |
+| Phạm vi | MySQL, MongoDB, PostgreSQL, Redis |
+| Đích lưu | Google Drive (qua rclone remote OAuth) |
+| Log | `backup/backup.log`, logrotate weekly giữ 4 tuần |
+| Restore | `restore.sh <mysql\|mongo\|pg\|redis> <file>` |
+
+### 17.8. Bảo mật hạ tầng (tổng hợp)
+
+Các lớp phòng thủ áp dụng: UFW chỉ mở 22/80/443 ra internet, mọi cổng app/DB còn lại chỉ whitelist IP nội bộ; DB container bind `127.0.0.1`; công cụ quản trị DB (phpMyAdmin, pgAdmin...) đặt sau HTTP Basic Auth + HTTPS; Swagger (`/api-docs`) khóa bằng Basic Auth; HSTS + `X-Frame-Options` trên mọi domain; `.env` và `htpasswd` đặt `chmod 600`; SSL tự gia hạn.
+
+> **Khuyến nghị bảo mật cần khắc phục:** file seed `configAdmin.sql` đang hardcode tài khoản DB với mật khẩu rõ; nên chuyển sang biến môi trường và loại khỏi version control. Đây là rủi ro thật, không chỉ là vấn đề tài liệu.
+---
+
+## 18. Thuật ngữ
+
+### 18.1. Thuật ngữ nghiệp vụ (tiếng Việt)
 
 | Thuật ngữ | Giải thích |
 |-----------|------------|
@@ -2081,7 +2268,7 @@ Cơ chế "key tự hết hạn" giúp server **tự động thoát chế độ 
 | **loaiTien** | Loại tiền dùng để mua (vàng / ngọc) tại shop NPC |
 | **nhacnen** | Nhạc nền của game |
 
-### 17.2. Thuật ngữ kỹ thuật
+### 18.2. Thuật ngữ kỹ thuật
 
 | Thuật ngữ | Giải thích |
 |-----------|------------|
@@ -2101,6 +2288,13 @@ Cơ chế "key tự hết hạn" giúp server **tự động thoát chế độ 
 | **Redlock** | Thuật toán khóa phân tán trên Redis, đảm bảo chỉ một instance chạy một cron tại một thời điểm khi hệ thống scale ngang |
 | **RAG (Retrieval-Augmented Generation)** | Kỹ thuật cho AI trả lời dựa trên tài liệu: truy xuất đoạn liên quan rồi đưa vào prompt cho LLM, giảm bịa đặt (hallucination) |
 | **Embedding** | Vector số biểu diễn ngữ nghĩa của văn bản, dùng để đo độ tương đồng khi truy xuất trong RAG |
+| **PM2 (cluster mode)** | Trình quản lý tiến trình Node.js; `-i max` chạy nhiều worker theo số CPU, `reload` cho phép cập nhật không downtime |
+| **least_conn** | Thuật toán cân bằng tải của Nginx: đẩy request về upstream đang có ít kết nối nhất |
+| **stream block (Nginx)** | Cấu hình proxy tầng TCP/UDP (L4) của Nginx, dùng để chuyển tiếp cổng DB thay vì HTTP (L7) |
+| **HSTS** | HTTP Strict Transport Security — buộc trình duyệt luôn dùng HTTPS với domain |
+| **repository_dispatch** | Sự kiện GitHub Actions cho phép một repo kích hoạt workflow ở repo khác (dùng cho deploy trung tâm) |
+| **Distributed tracing (Jaeger)** | Theo dõi một request xuyên suốt nhiều service để phân tích độ trễ và lỗi |
+| **rclone** | Công cụ đồng bộ file lên cloud storage (ở đây: backup DB lên Google Drive) |
 
 ---
 
