@@ -305,90 +305,90 @@ export class PlayerManagerController {
     return { total: bans.length, bans };
   }
 
-  @Cron('0 20 * * *', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-  })
-  async callApi() {
-    // Để xem tại sao xử lí như này => coi file redlock.md
-    let lock: RLock | null = null;
-    try {
-      lock = await this.redlock.acquire(['lock:cron:callApi'], 60_000);
-      return await this.authService.handleSendEmailToUser({
-        who: "ALL",
-        title: "Ngọc Rồng Tranh Bá",
-        content: `Sự kiện hằng ngày Ngọc Rồng Sao Đen đã chính thức khởi động. 
-                  <br/>
-                  Đây là hoạt động thử thách khả năng sinh tồn, phối hợp bang hội và kỹ năng chiến đấu của mỗi chiến binh tham gia.
-                  Mỗi ngày, hệ thống sẽ tạo ra một viên Ngọc Rồng Sao Đen duy nhất tại bản đồ sự kiện. Tất cả người chơi đều có thể tham gia tranh đoạt. Khi nhặt được Ngọc Rồng Sao Đen, người chơi sẽ bước vào trạng thái Người Mang Ngọc, trở thành mục tiêu mà toàn bộ khu vực có thể nhìn thấy.
-                  <br/>
-                  Nhiệm vụ rất đơn giản nhưng vô cùng khắc nghiệt:
-                  duy trì việc cầm giữ Ngọc Rồng Sao Đen trong 30 phút liên tục.
-                  <br/>
-                  Hãy chuẩn bị trang bị mạnh nhất, tổ chức đội hình phù hợp và đừng bỏ lỡ cơ hội khẳng định vị thế của bang hội mình trong sự kiện Ngọc Rồng Sao Đen mỗi ngày.
-                  <br/>
-                  Chúc bạn may mắn và giành chiến thắng.`
-      })
-    } catch (err) {
-      if (err instanceof ExecutionError || err instanceof ResourceLockedError) {
-        console.warn('Cron job bị lock bởi instance khác, bỏ qua');
-        return;
-      }
-      throw err;
-    } finally {
-      if (lock) {
-        await lock.release();
-      }
-    }
-  }
+  // @Cron('0 20 * * *', {
+  //   timeZone: 'Asia/Ho_Chi_Minh',
+  // })
+  // async callApi() {
+  //   // Để xem tại sao xử lí như này => coi file redlock.md
+  //   let lock: RLock | null = null;
+  //   try {
+  //     lock = await this.redlock.acquire(['lock:cron:callApi'], 60_000);
+  //     return await this.authService.handleSendEmailToUser({
+  //       who: "ALL",
+  //       title: "Ngọc Rồng Tranh Bá",
+  //       content: `Sự kiện hằng ngày Ngọc Rồng Sao Đen đã chính thức khởi động. 
+  //                 <br/>
+  //                 Đây là hoạt động thử thách khả năng sinh tồn, phối hợp bang hội và kỹ năng chiến đấu của mỗi chiến binh tham gia.
+  //                 Mỗi ngày, hệ thống sẽ tạo ra một viên Ngọc Rồng Sao Đen duy nhất tại bản đồ sự kiện. Tất cả người chơi đều có thể tham gia tranh đoạt. Khi nhặt được Ngọc Rồng Sao Đen, người chơi sẽ bước vào trạng thái Người Mang Ngọc, trở thành mục tiêu mà toàn bộ khu vực có thể nhìn thấy.
+  //                 <br/>
+  //                 Nhiệm vụ rất đơn giản nhưng vô cùng khắc nghiệt:
+  //                 duy trì việc cầm giữ Ngọc Rồng Sao Đen trong 30 phút liên tục.
+  //                 <br/>
+  //                 Hãy chuẩn bị trang bị mạnh nhất, tổ chức đội hình phù hợp và đừng bỏ lỡ cơ hội khẳng định vị thế của bang hội mình trong sự kiện Ngọc Rồng Sao Đen mỗi ngày.
+  //                 <br/>
+  //                 Chúc bạn may mắn và giành chiến thắng.`
+  //     })
+  //   } catch (err) {
+  //     if (err instanceof ExecutionError || err instanceof ResourceLockedError) {
+  //       console.warn('Cron job bị lock bởi instance khác, bỏ qua');
+  //       return;
+  //     }
+  //     throw err;
+  //   } finally {
+  //     if (lock) {
+  //       await lock.release();
+  //     }
+  //   }
+  // }
 
-  @Cron('0 0 * * *', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-  })
-  async logDoanhThu() {
-    let lock: RLock | null = null;
-    try {
-      // Để xem tại sao xử lí như này => coi file redlock.md
-      lock = await this.redlock.acquire(['lock:cron:logDoanhThu'], 30_000);
-      const doanhThu = await this.financeService.handleGetFinanceSummary({});
-      const tienNap = doanhThu.total_nap;
-      const tienRut = doanhThu.total_rut;
-      const tienLai = doanhThu.balance;
-      const now = new Date();
-      const ngay = now.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-      const gio = now.toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-      // winstonLogger.log({ nhiemVu: 'thongBaoDoanhThu', doanhThu: tienLai })
-      return await this.authService.handleSendEmailToUser({
-        who: "ADMIN",
-        title: "Thông kê doanh thu",
-        content: `Báo cáo doanh thu ngày ${ngay} (lúc ${gio})
+  // @Cron('0 0 * * *', {
+  //   timeZone: 'Asia/Ho_Chi_Minh',
+  // })
+  // async logDoanhThu() {
+  //   let lock: RLock | null = null;
+  //   try {
+  //     // Để xem tại sao xử lí như này => coi file redlock.md
+  //     lock = await this.redlock.acquire(['lock:cron:logDoanhThu'], 30_000);
+  //     const doanhThu = await this.financeService.handleGetFinanceSummary({});
+  //     const tienNap = doanhThu.total_nap;
+  //     const tienRut = doanhThu.total_rut;
+  //     const tienLai = doanhThu.balance;
+  //     const now = new Date();
+  //     const ngay = now.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  //     const gio = now.toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  //     // winstonLogger.log({ nhiemVu: 'thongBaoDoanhThu', doanhThu: tienLai })
+  //     return await this.authService.handleSendEmailToUser({
+  //       who: "ADMIN",
+  //       title: "Thông kê doanh thu",
+  //       content: `Báo cáo doanh thu ngày ${ngay} (lúc ${gio})
 
-        Hệ thống đã tổng hợp doanh thu trong ngày với các số liệu sau:
+  //       Hệ thống đã tổng hợp doanh thu trong ngày với các số liệu sau:
 
-        <br/>
+  //       <br/>
 
-        • Tổng tiền nạp: ${tienNap.toLocaleString('vi-VN')} VNĐ
-        <br/>
-        • Tổng tiền rút: ${tienRut.toLocaleString('vi-VN')} VNĐ
-        <br/>
-        • Lợi nhuận thực (sau khi trừ rút): ${tienLai.toLocaleString('vi-VN')} VNĐ
-        <br/>
-        <br/>
+  //       • Tổng tiền nạp: ${tienNap.toLocaleString('vi-VN')} VNĐ
+  //       <br/>
+  //       • Tổng tiền rút: ${tienRut.toLocaleString('vi-VN')} VNĐ
+  //       <br/>
+  //       • Lợi nhuận thực (sau khi trừ rút): ${tienLai.toLocaleString('vi-VN')} VNĐ
+  //       <br/>
+  //       <br/>
 
-        Báo cáo được tạo tự động bởi hệ thống vào lúc ${gio}.
-        Vui lòng kiểm tra lại trên hệ thống nếu cần đối soát chi tiết.`
-      })
-    } catch (err) {
-      if (err instanceof ExecutionError || err instanceof ResourceLockedError) {
-        console.warn('Cron job bị lock bởi instance khác, bỏ qua');
-        return;
-      }
-      throw err;
-    } finally {
-      if (lock) {
-        await lock.release();
-      }
-    }
-  }
+  //       Báo cáo được tạo tự động bởi hệ thống vào lúc ${gio}.
+  //       Vui lòng kiểm tra lại trên hệ thống nếu cần đối soát chi tiết.`
+  //     })
+  //   } catch (err) {
+  //     if (err instanceof ExecutionError || err instanceof ResourceLockedError) {
+  //       console.warn('Cron job bị lock bởi instance khác, bỏ qua');
+  //       return;
+  //     }
+  //     throw err;
+  //   } finally {
+  //     if (lock) {
+  //       await lock.release();
+  //     }
+  //   }
+  // }
 
   @Cron('30 3 * * *', {
     timeZone: 'Asia/Ho_Chi_Minh',
