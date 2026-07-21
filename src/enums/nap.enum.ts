@@ -1,5 +1,5 @@
-export enum LoaiNapTien {
-  ITEM = 'ITEM',
-  VANG = 'VANG',
-  NGOC = 'NGOC'
+export enum loaiNapTien {
+  ITEM = 'vật phẩm',
+  VANG = 'vàng',
+  NGOC = 'ngọc'
 }
