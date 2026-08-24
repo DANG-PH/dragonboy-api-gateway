@@ -19,7 +19,7 @@ COPY --from=builder /app/proto ./proto
 COPY --from=builder /app/dto ./dto
 COPY --from=builder /app/package*.json ./
 
-RUN npm ci --omit=dev
+RUN npm ci
 
 EXPOSE 3000
 
